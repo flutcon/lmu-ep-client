@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from lmu_ep_client.models import (
@@ -46,6 +46,9 @@ SESSION_NAMES = {
 
 WHEEL_POSITIONS = ["FL", "FR", "RL", "RR"]
 
+# Minimum wear improvement to consider a tire swap has occurred
+TIRE_WEAR_CHANGE_THRESHOLD = 0.1
+
 
 @dataclass
 class TickData:
@@ -76,11 +79,22 @@ class _PrePitSnapshot:
     dent_severity: list[int]
 
 
+@dataclass
+class _StintStart:
+    stint_number: int
+    driver: str
+    start_lap: int
+    start_elapsed: float
+    start_fuel: float
+    fuel_capacity: float
+    start_energy: float
+
+
 class StintDetector:
     def __init__(self) -> None:
         self.session: SessionData | None = None
         self.stints: list[Stint] = []
-        self._current_stint_start: dict | None = None
+        self._current_stint_start: _StintStart | None = None
         self._prev_pit_state: int = PIT_NONE
         self._prev_laps: int = 0
         self._pre_pit: _PrePitSnapshot | None = None
@@ -113,6 +127,11 @@ class StintDetector:
                     self.session.end_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
                 events.add("session_end")
                 self._session_active = False
+                self._prev_laps = 0
+                self._pre_pit = None
+                self._pit_enter_elapsed = 0.0
+                self._pit_stand_elapsed = 0.0
+                self._current_stint_start = None
                 self._prev_pit_state = tick.pit_state
                 return events
 
@@ -129,15 +148,15 @@ class StintDetector:
         return events
 
     def _start_stint(self, tick: TickData) -> None:
-        self._current_stint_start = {
-            "stint_number": len(self.stints) + 1,
-            "driver": tick.driver,
-            "start_lap": tick.total_laps,
-            "start_elapsed": tick.elapsed,
-            "start_fuel": tick.fuel,
-            "fuel_capacity": tick.fuel_capacity,
-            "start_energy": tick.virtual_energy,
-        }
+        self._current_stint_start = _StintStart(
+            stint_number=len(self.stints) + 1,
+            driver=tick.driver,
+            start_lap=tick.total_laps,
+            start_elapsed=tick.elapsed,
+            start_fuel=tick.fuel,
+            fuel_capacity=tick.fuel_capacity,
+            start_energy=tick.virtual_energy,
+        )
 
     def _check_pit_transitions(self, tick: TickData) -> set[str]:
         events: set[str] = set()
@@ -176,7 +195,7 @@ class StintDetector:
                     old_w = pre.wheels[i]
                     new_w = tick.wheels[i]
                     compound_changed = old_w["compound_type"] != new_w["compound_type"]
-                    wear_reset = new_w["wear"] > old_w["wear"] + 0.1
+                    wear_reset = new_w["wear"] > old_w["wear"] + TIRE_WEAR_CHANGE_THRESHOLD
                     changed = compound_changed or wear_reset
                     tyres[pos] = TireInfo(
                         changed=changed,
@@ -209,19 +228,19 @@ class StintDetector:
                 # Finalize current stint
                 cs = self._current_stint_start
                 stint = Stint(
-                    stint_number=cs["stint_number"],
-                    driver=cs["driver"],
-                    start_lap=cs["start_lap"],
+                    stint_number=cs.stint_number,
+                    driver=cs.driver,
+                    start_lap=cs.start_lap,
                     end_lap=pre.lap,
-                    start_time_elapsed=cs["start_elapsed"],
+                    start_time_elapsed=cs.start_elapsed,
                     end_time_elapsed=pre.elapsed,
                     fuel=FuelData(
-                        start_litres=cs["start_fuel"],
+                        start_litres=cs.start_fuel,
                         end_litres=pre.fuel,
-                        capacity=cs["fuel_capacity"],
+                        capacity=cs.fuel_capacity,
                     ),
                     energy=EnergyData(
-                        start_percent=cs["start_energy"],
+                        start_percent=cs.start_energy,
                         end_percent=pre.energy,
                     ),
                     pit_stop=pit_stop,
@@ -245,19 +264,19 @@ class StintDetector:
             return
         cs = self._current_stint_start
         stint = Stint(
-            stint_number=cs["stint_number"],
-            driver=cs["driver"],
-            start_lap=cs["start_lap"],
+            stint_number=cs.stint_number,
+            driver=cs.driver,
+            start_lap=cs.start_lap,
             end_lap=tick.total_laps,
-            start_time_elapsed=cs["start_elapsed"],
+            start_time_elapsed=cs.start_elapsed,
             end_time_elapsed=tick.elapsed,
             fuel=FuelData(
-                start_litres=cs["start_fuel"],
+                start_litres=cs.start_fuel,
                 end_litres=tick.fuel,
-                capacity=cs["fuel_capacity"],
+                capacity=cs.fuel_capacity,
             ),
             energy=EnergyData(
-                start_percent=cs["start_energy"],
+                start_percent=cs.start_energy,
                 end_percent=tick.virtual_energy,
             ),
         )
