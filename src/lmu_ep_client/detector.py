@@ -113,6 +113,7 @@ class StintDetector:
                     self.session.end_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
                 events.add("session_end")
                 self._session_active = False
+                self._prev_pit_state = tick.pit_state
                 return events
 
             # Pit state transitions
