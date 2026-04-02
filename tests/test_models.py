@@ -1,4 +1,11 @@
-from lmu_ep_client.models import TireInfo
+from lmu_ep_client.models import (
+    EnergyData,
+    FuelData,
+    PitStop,
+    SessionData,
+    Stint,
+    TireInfo,
+)
 
 
 def test_tire_info_to_dict_changed():
@@ -30,9 +37,6 @@ def test_tire_info_to_dict_not_changed():
         "old_wear": 0.45,
         "old_compound": "Hard",
     }
-
-
-from lmu_ep_client.models import FuelData, EnergyData
 
 
 def test_fuel_data_to_dict():
@@ -72,9 +76,6 @@ def test_energy_data_with_laps():
     energy = EnergyData(start_percent=100.0, end_percent=5.2)
     result = energy.to_dict(total_laps=28)
     assert result["percent_per_lap"] == round(94.8 / 28, 2)
-
-
-from lmu_ep_client.models import PitStop
 
 
 def test_pit_stop_to_dict():
@@ -117,9 +118,6 @@ def test_pit_stop_no_driver_change():
     assert result["driver_change"] is False
     assert "new_driver" not in result
     assert result["repair_flag"] is True
-
-
-from lmu_ep_client.models import Stint, SessionData
 
 
 def test_stint_to_dict_with_pit():
