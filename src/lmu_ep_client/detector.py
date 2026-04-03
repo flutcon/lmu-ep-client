@@ -202,10 +202,10 @@ class StintDetector:
         if not self._pit_stand_elapsed and self._pre_pit and curr in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE):
             self._pit_stand_elapsed = tick.elapsed
 
-        # Track pit box departure — capture the moment we leave the last box state.
-        # e.g. 2→3→4→0: records at the 4→0 transition.
-        # e.g. 2→3→0: records at the 3→0 transition (avoids standing_time=0).
-        if self._pit_stand_elapsed and prev in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE) and curr not in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE):
+        # Track pit box departure — update on every state change while at the box.
+        # The last recorded value before leaving gives us when service ended.
+        # e.g. in 2→4→5→0: records at 4→5, giving the moment service completed.
+        if self._pit_stand_elapsed and prev != curr and curr in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE):
             self._pit_depart_elapsed = tick.elapsed
 
         # Left pit zone: was in pit area (or garage), now back on track
