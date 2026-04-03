@@ -1,7 +1,4 @@
-import logging
-
-from lmu_ep_client.poller import run
+from lmu_ep_client.cli import main
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
-    run()
+    main()
