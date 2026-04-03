@@ -6,3 +6,5 @@ dist/
 build/
 .venv/
 vendor/pyLMUSharedMemory/.git
+.claude/
+=*
