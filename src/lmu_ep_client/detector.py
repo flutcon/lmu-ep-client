@@ -25,6 +25,7 @@ PIT_REQUEST = 1
 PIT_ENTERING = 2
 PIT_STOPPED = 3
 PIT_EXITING = 4
+PIT_GARAGE = 5
 
 # Compound type mapping
 COMPOUND_NAMES = {0: "Soft", 1: "Medium", 2: "Hard", 3: "Wet"}
@@ -178,7 +179,7 @@ class StintDetector:
             logger.debug("Pit state: %d -> %d (elapsed=%.1f)", prev, curr, tick.elapsed)
 
         # Entered pit zone: was on track, now in pit area
-        if prev in on_track and curr in in_pit:
+        if prev in on_track and curr not in on_track:
             self._pre_pit = _PrePitSnapshot(
                 elapsed=tick.elapsed,
                 fuel=tick.fuel,
@@ -196,8 +197,8 @@ class StintDetector:
         if curr == PIT_STOPPED and prev != PIT_STOPPED:
             self._pit_stand_elapsed = tick.elapsed
 
-        # Left pit zone: was in pit area, now back on track
-        if prev in in_pit and curr in on_track:
+        # Left pit zone: was in pit area (or garage), now back on track
+        if prev not in on_track and curr in on_track:
             pit_exit_elapsed = tick.elapsed
             if not self._pit_stand_elapsed:
                 self._pit_stand_elapsed = self._pit_enter_elapsed

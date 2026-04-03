@@ -319,3 +319,24 @@ def test_session_starts_in_pits_full_pit_cycle():
     assert "session_end" in events
     assert len(det.stints) == 2
     assert det.stints[1].stint_number == 2
+
+
+def test_session_starts_in_garage_pit_state_5():
+    """LMU uses pit_state=5 for garage. Car should start stint when leaving garage to track."""
+    det = StintDetector()
+
+    # Session starts while car is in garage (pit_state=5)
+    events = det.update(_make_tick(game_phase=5, elapsed=0.0, pit_state=5))
+    assert "session_start" in events
+    assert det._current_stint_start is None  # stint deferred
+
+    # Car leaves garage directly to track (5 -> 0)
+    events = det.update(_make_tick(elapsed=10.0, pit_state=0, total_laps=0, fuel=110.0))
+    assert "pit_exit" in events
+    assert det._current_stint_start is not None
+
+    # Drive and end session
+    events = det.update(_make_tick(game_phase=8, elapsed=600.0, total_laps=10, fuel=50.0))
+    assert "session_end" in events
+    assert len(det.stints) == 1
+    assert det.stints[0].fuel.start_litres == 110.0
