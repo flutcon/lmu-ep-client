@@ -50,8 +50,9 @@ SESSION_NAMES = {
 
 WHEEL_POSITIONS = ["FL", "FR", "RL", "RR"]
 
-# Minimum wear improvement to consider a tire swap has occurred
-TIRE_WEAR_CHANGE_THRESHOLD = 0.1
+# Any wear increase during a pit stop means tires were swapped
+# (tires only lose wear during driving, so any gain = fresh rubber)
+TIRE_WEAR_CHANGE_THRESHOLD = 0.001
 
 
 @dataclass
@@ -193,8 +194,10 @@ class StintDetector:
             self._pit_stand_elapsed = 0.0
             events.add("pit_enter")
 
-        # Reached pit stand (record when we first see STOPPED or GARAGE)
-        if curr in (PIT_STOPPED, PIT_GARAGE) and prev not in (PIT_STOPPED, PIT_GARAGE):
+        # Reached pit stand — record first time we see STOPPED(3), EXITING(4), or GARAGE(5)
+        # after entering the pits. LMU uses different combinations of these at the box.
+        # State 4 counts here because LMU sometimes goes 2→4→5→0 (skipping 3).
+        if not self._pit_stand_elapsed and self._pre_pit and curr in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE):
             self._pit_stand_elapsed = tick.elapsed
 
         # Left pit zone: was in pit area (or garage), now back on track
