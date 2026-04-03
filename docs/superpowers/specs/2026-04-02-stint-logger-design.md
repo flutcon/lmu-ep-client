@@ -118,9 +118,10 @@ lmu-ep-client/
 | Field | Type | Description |
 |-------|------|-------------|
 | pit_enter_elapsed | float | Session elapsed time when pit state becomes Entering (2) |
-| pit_stand_elapsed | float | Session elapsed time when pit state becomes Stopped (3) |
-| pit_exit_elapsed | float | Session elapsed time when pit state becomes Exiting (4) |
-| standing_time_seconds | float | pit_exit - pit_stand |
+| pit_stand_elapsed | float | Session elapsed time when first box state (3/4/5) is seen |
+| pit_depart_elapsed | float | Session elapsed time of last transition between box states; falls back to pit_stand_elapsed if no such transition occurred |
+| pit_exit_elapsed | float | Session elapsed time when car returns to on-track state (0/1) |
+| standing_time_seconds | float | pit_depart - pit_stand |
 | total_pit_time_seconds | float | pit_exit - pit_enter |
 | fuel_added_litres | float | post-pit fuel - pre-pit fuel |
 | energy_added_percent | float | post-pit energy - pre-pit energy |
@@ -135,7 +136,7 @@ lmu-ep-client/
 |-------|------|-------------|
 | changed | bool | true if compound changed or wear reset detected |
 | old_wear | float | wear value pre-pit (0.0 = fully worn, 1.0 = fresh) |
-| old_compound | string | compound name pre-pit via `LMUCompoundType` enum |
+| old_compound | string | compound name pre-pit via `mCompoundType` |
 | new_compound | string | compound name post-pit (only if changed) |
 
 ## Detection Logic
@@ -148,15 +149,26 @@ pyLMUSharedMemory `mPitState` values:
 - 2 = Entering
 - 3 = Stopped
 - 4 = Exiting
+- 5 = Garage
 
-Transitions monitored on the player's vehicle (`playerVehicleIdx`):
+The player vehicle is identified via `playerVehicleIdx` (indexes into `telemInfo`). The matching `vehScoringInfo` entry is found by matching `mID`, as the two arrays may be ordered differently in multiplayer.
 
+**Drive-through detection:** if the car enters pit lane (state 2) but never reaches a box state (3/4/5), no stint is finalized and the current stint continues.
+
+**Timing:**
+- `pit_stand_elapsed` — set on the first box state (3, 4, or 5) seen after pit entry
+- `pit_depart_elapsed` — updated on each transition *between* box states (e.g. 3→4, 4→5); the last recorded value represents when service completed
+- `pit_exit_elapsed` — set when the car returns to on-track state (0/1)
+- `standing_time_seconds = pit_depart_elapsed - pit_stand_elapsed`
+
+**Known LMU state sequences:**
 ```
-ON_TRACK (0/1) → ENTERING (2)   : snapshot pre-pit data (fuel, energy, tires, dents, lap, elapsed), record pit_enter_elapsed
-ENTERING (2)   → STOPPED (3)    : record pit_stand_elapsed
-STOPPED (3)    → EXITING (4)    : snapshot post-pit data (fuel, energy, tires, dents, driver name), record pit_exit_elapsed
-EXITING (4)    → ON_TRACK (0)   : finalize stint (compute deltas, detect changes), start new stint
+2→3→4→0   (normal)          : stand=3, depart=4, exit=0  ✓
+2→4→5→0   (LMU variant)     : stand=4, depart=5, exit=0  ✓
+2→3→0     (no inter-box tx) : stand=3, depart=3 (fallback), standing_time=0
 ```
+
+For the `2→3→0` sequence (short stop with no intermediate state), `standing_time_seconds` will be 0 because there is no inter-box state transition to record service completion. This is a known limitation at 1 Hz polling resolution.
 
 ### Driver Change Detection
 
@@ -174,9 +186,11 @@ Detected by `mTotalLaps` incrementing on the player's vehicle. Used for per-lap 
 
 ### Tire Change Detection
 
-Compare pre-pit and post-pit tire data per wheel. A tire is considered "changed" if:
-- Wear value resets (post-pit wear significantly higher than pre-pit), OR
-- Compound type changes
+Compare pre-pit and post-pit tire data per wheel using `mWheels[i]`. A tire is considered "changed" if:
+- `mCompoundIndex` changed (unique compound ID per car+track compound list), OR
+- Wear value resets (post-pit `mWear` > pre-pit `mWear` + 0.001 threshold)
+
+`mCompoundIndex` is the primary signal as it distinguishes compound variants within the same type category (e.g. two different Softs). The wear-reset fallback catches same-compound fresh-set swaps.
 
 ### Repair Detection
 
@@ -228,3 +242,7 @@ Ctrl+C triggers graceful shutdown with final data flush.
 - **Practice (frequent pits):** All pit cycles tracked regardless of session type
 - **No pit stop in session:** Single stint recorded with `pit_stop: null`
 - **Multiple driver changes in one pit:** Only the final driver name post-pit matters
+- **Session starts in pit/garage:** Stint start is deferred until the car first leaves the pits; the initial garage exit is not recorded as a pit stop
+- **Drive-through penalty:** Car enters pit lane (state 2) but never reaches a box state; no stint is finalized
+- **Multiplayer sessions:** Player vehicle identified by `mID` match between telemetry and scoring arrays, not by array index, to correctly isolate the local player's car
+- **Short stop, `2→3→0` path:** `standing_time_seconds` will be 0 — known limitation, no inter-box state transition available to record service completion at 1 Hz polling
