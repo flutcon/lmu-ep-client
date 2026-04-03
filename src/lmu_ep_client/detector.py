@@ -193,17 +193,19 @@ class StintDetector:
             self._pit_stand_elapsed = 0.0
             events.add("pit_enter")
 
-        # Reached pit stand (record when we first see STOPPED)
-        if curr == PIT_STOPPED and prev != PIT_STOPPED:
+        # Reached pit stand (record when we first see STOPPED or GARAGE)
+        if curr in (PIT_STOPPED, PIT_GARAGE) and prev not in (PIT_STOPPED, PIT_GARAGE):
             self._pit_stand_elapsed = tick.elapsed
 
         # Left pit zone: was in pit area (or garage), now back on track
         if prev not in on_track and curr in on_track:
             pit_exit_elapsed = tick.elapsed
-            if not self._pit_stand_elapsed:
-                self._pit_stand_elapsed = self._pit_enter_elapsed
 
-            if self._pre_pit and self._current_stint_start:
+            # Drive-through: entered pit lane but never stopped — not a real pit stop
+            if self._pre_pit and not self._pit_stand_elapsed:
+                logger.debug("Drive-through detected (no stop), continuing stint (elapsed=%.1f)", tick.elapsed)
+                self._pre_pit = None
+            elif self._pre_pit and self._current_stint_start:
                 pre = self._pre_pit
 
                 # Build tire info

@@ -340,3 +340,31 @@ def test_session_starts_in_garage_pit_state_5():
     assert "session_end" in events
     assert len(det.stints) == 1
     assert det.stints[0].fuel.start_litres == 110.0
+
+
+def test_drive_through_does_not_create_stint():
+    """Drive-through penalty: car enters pit lane but never stops — no new stint."""
+    det = StintDetector()
+
+    # Start session on track
+    det.update(_make_tick(game_phase=5, elapsed=0.0))
+
+    # Drive some laps
+    det.update(_make_tick(elapsed=300.0, total_laps=5, fuel=80.0))
+
+    # Enter pit lane (drive-through)
+    events = det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0))
+    assert "pit_enter" in events
+
+    # Exit pit lane without stopping (2 -> 0, no state 3 or 5)
+    events = det.update(_make_tick(elapsed=633.0, pit_state=0, total_laps=10, fuel=49.8))
+    assert "pit_exit" not in events
+    assert len(det.stints) == 0  # no stint finalized
+
+    # Continue driving and end session
+    events = det.update(_make_tick(game_phase=8, elapsed=900.0, total_laps=15, fuel=30.0))
+    assert "session_end" in events
+    assert len(det.stints) == 1  # only the one stint from start to end
+    assert det.stints[0].pit_stop is None
+    assert det.stints[0].start_lap == 0
+    assert det.stints[0].end_lap == 15
