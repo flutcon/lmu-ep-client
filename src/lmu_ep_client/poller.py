@@ -139,6 +139,8 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
 
     except KeyboardInterrupt:
         pass
+    except Exception:
+        logger.exception("Unexpected error in polling loop")
     finally:
         _log("Shutting down...")
         if detector.session:
