@@ -106,6 +106,7 @@ class StintDetector:
         self._pre_pit: _PrePitSnapshot | None = None
         self._pit_enter_elapsed: float = 0.0
         self._pit_stand_elapsed: float = 0.0
+        self._pit_depart_elapsed: float = 0.0
         self._session_active: bool = False
 
     def update(self, tick: TickData) -> set[str]:
@@ -142,6 +143,7 @@ class StintDetector:
                 self._pre_pit = None
                 self._pit_enter_elapsed = 0.0
                 self._pit_stand_elapsed = 0.0
+                self._pit_depart_elapsed = 0.0
                 self._current_stint_start = None
                 self._prev_pit_state = tick.pit_state
                 return events
@@ -192,6 +194,7 @@ class StintDetector:
             )
             self._pit_enter_elapsed = tick.elapsed
             self._pit_stand_elapsed = 0.0
+            self._pit_depart_elapsed = 0.0
             events.add("pit_enter")
 
         # Reached pit stand — record first time we see STOPPED(3), EXITING(4), or GARAGE(5)
@@ -199,6 +202,12 @@ class StintDetector:
         # State 4 counts here because LMU sometimes goes 2→4→5→0 (skipping 3).
         if not self._pit_stand_elapsed and self._pre_pit and curr in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE):
             self._pit_stand_elapsed = tick.elapsed
+
+        # Track pit box departure — update on every state change while at the box.
+        # The last recorded value before leaving gives us when service ended.
+        # e.g. in 2→4→5→0: records at 4→5, giving the moment service completed.
+        if self._pit_stand_elapsed and prev != curr and curr in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE):
+            self._pit_depart_elapsed = tick.elapsed
 
         # Left pit zone: was in pit area (or garage), now back on track
         if prev not in on_track and curr in on_track:
@@ -238,6 +247,7 @@ class StintDetector:
                 pit_stop = PitStop(
                     pit_enter_elapsed=self._pit_enter_elapsed,
                     pit_stand_elapsed=self._pit_stand_elapsed,
+                    pit_depart_elapsed=self._pit_depart_elapsed or self._pit_stand_elapsed,
                     pit_exit_elapsed=pit_exit_elapsed,
                     fuel_added_litres=round(tick.fuel - pre.fuel, 2),
                     energy_added_percent=round(tick.virtual_energy - pre.energy, 2),

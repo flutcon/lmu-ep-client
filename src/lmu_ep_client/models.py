@@ -59,6 +59,7 @@ class EnergyData:
 class PitStop:
     pit_enter_elapsed: float
     pit_stand_elapsed: float
+    pit_depart_elapsed: float
     pit_exit_elapsed: float
     fuel_added_litres: float
     energy_added_percent: float
@@ -71,8 +72,9 @@ class PitStop:
         d: dict = {
             "pit_enter_elapsed": self.pit_enter_elapsed,
             "pit_stand_elapsed": self.pit_stand_elapsed,
+            "pit_depart_elapsed": self.pit_depart_elapsed,
             "pit_exit_elapsed": self.pit_exit_elapsed,
-            "standing_time_seconds": round(self.pit_exit_elapsed - self.pit_stand_elapsed, 1),
+            "standing_time_seconds": round(self.pit_depart_elapsed - self.pit_stand_elapsed, 1),
             "total_pit_time_seconds": round(self.pit_exit_elapsed - self.pit_enter_elapsed, 1),
             "fuel_added_litres": self.fuel_added_litres,
             "energy_added_percent": self.energy_added_percent,

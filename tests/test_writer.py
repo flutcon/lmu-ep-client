@@ -96,6 +96,7 @@ def test_full_session_json_structure(tmp_path):
             pit_stop=PitStop(
                 pit_enter_elapsed=3360.5,
                 pit_stand_elapsed=3372.0,
+                pit_depart_elapsed=3385.0,
                 pit_exit_elapsed=3395.2,
                 fuel_added_litres=97.7,
                 energy_added_percent=94.8,

@@ -82,6 +82,7 @@ def test_pit_stop_to_dict():
     pit = PitStop(
         pit_enter_elapsed=3360.5,
         pit_stand_elapsed=3372.0,
+        pit_depart_elapsed=3385.0,
         pit_exit_elapsed=3395.2,
         fuel_added_litres=97.7,
         energy_added_percent=94.8,
@@ -94,7 +95,7 @@ def test_pit_stop_to_dict():
         },
     )
     result = pit.to_dict()
-    assert result["standing_time_seconds"] == round(3395.2 - 3372.0, 1)
+    assert result["standing_time_seconds"] == round(3385.0 - 3372.0, 1)
     assert result["total_pit_time_seconds"] == round(3395.2 - 3360.5, 1)
     assert result["driver_change"] is True
     assert result["new_driver"] == "TeammateName"
@@ -106,6 +107,7 @@ def test_pit_stop_no_driver_change():
     pit = PitStop(
         pit_enter_elapsed=100.0,
         pit_stand_elapsed=110.0,
+        pit_depart_elapsed=118.0,
         pit_exit_elapsed=125.0,
         fuel_added_litres=50.0,
         energy_added_percent=40.0,
@@ -133,6 +135,7 @@ def test_stint_to_dict_with_pit():
         pit_stop=PitStop(
             pit_enter_elapsed=3360.5,
             pit_stand_elapsed=3372.0,
+            pit_depart_elapsed=3385.0,
             pit_exit_elapsed=3395.2,
             fuel_added_litres=97.7,
             energy_added_percent=94.8,
