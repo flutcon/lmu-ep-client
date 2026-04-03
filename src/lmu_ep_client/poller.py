@@ -29,6 +29,7 @@ def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
             w = veh_telem.mWheels[i]
             wheels.append({
                 "wear": w.mWear,
+                "compound_index": w.mCompoundIndex,
                 "compound_type": w.mCompoundType,
                 "flat": bool(w.mFlat),
                 "detached": bool(w.mDetached),
@@ -92,17 +93,6 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
                 continue
 
             last_tick = tick
-
-            # Log raw state every tick for debugging
-            if last_tick and (
-                tick.pit_state != (detector._prev_pit_state)
-                or tick.game_phase != getattr(detector, '_prev_game_phase', None)
-            ):
-                _log(f"[DEBUG] phase={tick.game_phase} pit={tick.pit_state} "
-                     f"laps={tick.total_laps} fuel={tick.fuel:.1f} "
-                     f"energy={tick.virtual_energy:.1f} driver={tick.driver} "
-                     f"vehicle_model='{tick.vehicle_model}'")
-            detector._prev_game_phase = tick.game_phase
 
             events = detector.update(tick)
 

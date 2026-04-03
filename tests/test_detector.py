@@ -21,7 +21,7 @@ def _make_tick(
 ) -> TickData:
     if wheels is None:
         wheels = [
-            {"wear": 1.0, "compound_type": 2, "flat": False, "detached": False}
+            {"wear": 1.0, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False}
             for _ in range(4)
         ]
     if dent_severity is None:
@@ -88,7 +88,7 @@ def test_full_pit_cycle():
 
     # Pit exiting
     fresh_wheels = [
-        {"wear": 1.0, "compound_type": 0, "flat": False, "detached": False}
+        {"wear": 1.0, "compound_index": 1, "compound_type": 0, "flat": False, "detached": False}
         for _ in range(4)
     ]
     det.update(_make_tick(
@@ -240,7 +240,7 @@ def test_tire_not_changed_when_wear_similar():
     det.update(_make_tick(game_phase=5, elapsed=0.0))
 
     worn_wheels = [
-        {"wear": 0.5, "compound_type": 2, "flat": False, "detached": False}
+        {"wear": 0.5, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False}
         for _ in range(4)
     ]
     det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0, wheels=worn_wheels))
