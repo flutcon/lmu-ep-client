@@ -267,13 +267,12 @@ class StintDetector:
                 # Start new stint
                 self._start_stint(tick)
                 self._pre_pit = None
+                events.add("pit_exit")
             elif self._current_stint_start is None:
                 # First time leaving pits after session started in garage
                 logger.debug("First pit exit — starting stint 1 (elapsed=%.1f)", tick.elapsed)
                 self._start_stint(tick)
                 self._pre_pit = None
-
-            events.add("pit_exit")
 
         return events
 

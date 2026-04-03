@@ -265,9 +265,9 @@ def test_session_starts_in_pits_defers_stint():
     assert "session_start" in events
     assert det._current_stint_start is None  # stint deferred
 
-    # Car leaves pits
+    # Car leaves pits — not a real pit exit, just starting
     events = det.update(_make_tick(elapsed=10.0, pit_state=0, total_laps=0, fuel=110.0))
-    assert "pit_exit" in events
+    assert "pit_exit" not in events  # first garage exit is not a pit stop
     assert det._current_stint_start is not None  # stint started now
 
     # Drive some laps
@@ -291,7 +291,7 @@ def test_session_starts_in_pits_full_pit_cycle():
     # Session starts in pits
     det.update(_make_tick(game_phase=5, elapsed=0.0, pit_state=3))
 
-    # Leave pits
+    # Leave pits — first exit, not a pit stop
     det.update(_make_tick(elapsed=10.0, pit_state=0, total_laps=0, fuel=110.0))
 
     # Drive laps
@@ -330,9 +330,9 @@ def test_session_starts_in_garage_pit_state_5():
     assert "session_start" in events
     assert det._current_stint_start is None  # stint deferred
 
-    # Car leaves garage directly to track (5 -> 0)
+    # Car leaves garage directly to track (5 -> 0) — not a pit stop
     events = det.update(_make_tick(elapsed=10.0, pit_state=0, total_laps=0, fuel=110.0))
-    assert "pit_exit" in events
+    assert "pit_exit" not in events  # first garage exit is not a pit stop
     assert det._current_stint_start is not None
 
     # Drive and end session
