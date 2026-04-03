@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from lmu_ep_client.writer import session_filename, flush_session
-from lmu_ep_client.models import SessionData, Stint, FuelData, EnergyData
+from lmu_ep_client.models import SessionData, Stint, FuelData, EnergyData, PitStop, TireInfo
 
 
 def test_session_filename():
@@ -69,3 +69,78 @@ def test_flush_session_overwrites(tmp_path):
     assert path.exists()
     # Only one file, overwritten
     assert len(list(tmp_path.iterdir())) == 1
+
+
+def test_full_session_json_structure(tmp_path):
+    """Smoke test: verify the complete JSON output matches expected schema."""
+    from lmu_ep_client.models import PitStop, TireInfo
+
+    session = SessionData(
+        track="Le Mans 24h",
+        session_type="Race",
+        start_time="2026-04-02T18:30:00",
+        end_time="2026-04-02T19:30:00",
+        vehicle="Porsche 963",
+        vehicle_class="Hypercar",
+    )
+    stints = [
+        Stint(
+            stint_number=1,
+            driver="Player",
+            start_lap=0,
+            end_lap=28,
+            start_time_elapsed=0.0,
+            end_time_elapsed=3360.5,
+            fuel=FuelData(start_litres=110.0, end_litres=12.3, capacity=110.0),
+            energy=EnergyData(start_percent=100.0, end_percent=5.2),
+            pit_stop=PitStop(
+                pit_enter_elapsed=3360.5,
+                pit_stand_elapsed=3372.0,
+                pit_exit_elapsed=3395.2,
+                fuel_added_litres=97.7,
+                energy_added_percent=94.8,
+                repair_flag=False,
+                driver_change=True,
+                new_driver="Teammate",
+                tyres={
+                    "FL": TireInfo(changed=True, old_wear=0.28, old_compound="Hard", new_compound="Hard"),
+                    "FR": TireInfo(changed=True, old_wear=0.32, old_compound="Hard", new_compound="Hard"),
+                    "RL": TireInfo(changed=False, old_wear=0.55, old_compound="Hard"),
+                    "RR": TireInfo(changed=False, old_wear=0.58, old_compound="Hard"),
+                },
+            ),
+        ),
+        Stint(
+            stint_number=2,
+            driver="Teammate",
+            start_lap=28,
+            end_lap=55,
+            start_time_elapsed=3395.2,
+            end_time_elapsed=6600.0,
+            fuel=FuelData(start_litres=110.0, end_litres=15.0, capacity=110.0),
+            energy=EnergyData(start_percent=100.0, end_percent=8.0),
+        ),
+    ]
+
+    path = flush_session(session, stints, output_dir=tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    # Verify top-level structure
+    assert "session" in data
+    assert "stints" in data
+    assert len(data["stints"]) == 2
+
+    # Verify first stint has pit_stop with all fields
+    s1 = data["stints"][0]
+    assert s1["pit_stop"]["driver_change"] is True
+    assert s1["pit_stop"]["new_driver"] == "Teammate"
+    assert s1["pit_stop"]["tyres"]["FL"]["changed"] is True
+    assert s1["pit_stop"]["tyres"]["RL"]["changed"] is False
+    assert "new_compound" not in s1["pit_stop"]["tyres"]["RL"]
+
+    # Verify second stint has no pit_stop
+    assert data["stints"][1]["pit_stop"] is None
+
+    # Verify computed fields
+    assert s1["total_laps"] == 28
+    assert s1["fuel"]["litres_per_lap"] == round(97.7 / 28, 2)
