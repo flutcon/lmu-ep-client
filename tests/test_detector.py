@@ -254,3 +254,68 @@ def test_tire_not_changed_when_wear_similar():
         assert pit.tyres[pos].changed is False
         assert pit.tyres[pos].old_wear == 0.5
         assert pit.tyres[pos].new_compound is None
+
+
+def test_session_starts_in_pits_defers_stint():
+    """Practice sessions start in the garage/pits — stint should only begin when car leaves pits."""
+    det = StintDetector()
+
+    # Session starts while car is in pit (pit_state=3 = STOPPED)
+    events = det.update(_make_tick(game_phase=5, elapsed=0.0, pit_state=3))
+    assert "session_start" in events
+    assert det._current_stint_start is None  # stint deferred
+
+    # Car leaves pits
+    events = det.update(_make_tick(elapsed=10.0, pit_state=0, total_laps=0, fuel=110.0))
+    assert "pit_exit" in events
+    assert det._current_stint_start is not None  # stint started now
+
+    # Drive some laps
+    det.update(_make_tick(elapsed=300.0, total_laps=5, fuel=80.0))
+
+    # End session
+    events = det.update(_make_tick(game_phase=8, elapsed=600.0, total_laps=10, fuel=50.0))
+    assert "session_end" in events
+    assert len(det.stints) == 1
+    assert det.stints[0].stint_number == 1
+    assert det.stints[0].start_lap == 0
+    assert det.stints[0].end_lap == 10
+    assert det.stints[0].fuel.start_litres == 110.0
+    assert det.stints[0].fuel.end_litres == 50.0
+
+
+def test_session_starts_in_pits_full_pit_cycle():
+    """Session starts in pits, car goes out, comes back for a pit stop, goes out again."""
+    det = StintDetector()
+
+    # Session starts in pits
+    det.update(_make_tick(game_phase=5, elapsed=0.0, pit_state=3))
+
+    # Leave pits
+    det.update(_make_tick(elapsed=10.0, pit_state=0, total_laps=0, fuel=110.0))
+
+    # Drive laps
+    det.update(_make_tick(elapsed=300.0, total_laps=5, fuel=80.0))
+
+    # Pit entry
+    events = det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0))
+    assert "pit_enter" in events
+
+    # Pit stopped
+    det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0))
+
+    # Back on track
+    events = det.update(_make_tick(elapsed=640.0, pit_state=0, total_laps=10, fuel=110.0))
+    assert "pit_exit" in events
+    assert len(det.stints) == 1
+    assert det.stints[0].stint_number == 1
+    assert det.stints[0].fuel.start_litres == 110.0
+    assert det.stints[0].fuel.end_litres == 50.0
+    assert det.stints[0].pit_stop is not None
+    assert det.stints[0].pit_stop.fuel_added_litres == 60.0
+
+    # End session
+    events = det.update(_make_tick(game_phase=8, elapsed=900.0, total_laps=15, fuel=70.0))
+    assert "session_end" in events
+    assert len(det.stints) == 2
+    assert det.stints[1].stint_number == 2

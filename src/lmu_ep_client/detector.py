@@ -121,7 +121,12 @@ class StintDetector:
                     vehicle=tick.vehicle_model or tick.vehicle,
                     vehicle_class=tick.vehicle_class,
                 )
-                self._start_stint(tick)
+                # Only start first stint if car is on track; otherwise wait
+                # until the car leaves the pits (practice sessions start in garage)
+                if tick.pit_state in (PIT_NONE, PIT_REQUEST):
+                    self._start_stint(tick)
+                else:
+                    logger.debug("Session started while in pits (pit_state=%d), deferring first stint", tick.pit_state)
                 events.add("session_start")
         else:
             # Session end detection (SessionOver or return to garage)
@@ -259,6 +264,11 @@ class StintDetector:
                 self.stints.append(stint)
 
                 # Start new stint
+                self._start_stint(tick)
+                self._pre_pit = None
+            elif self._current_stint_start is None:
+                # First time leaving pits after session started in garage
+                logger.debug("First pit exit — starting stint 1 (elapsed=%.1f)", tick.elapsed)
                 self._start_stint(tick)
                 self._pre_pit = None
 

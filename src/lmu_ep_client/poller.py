@@ -49,7 +49,7 @@ def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
             total_laps=veh_scoring.mTotalLaps,
             fuel=veh_telem.mFuel,
             fuel_capacity=veh_telem.mFuelCapacity,
-            virtual_energy=veh_telem.mVirtualEnergy,
+            virtual_energy=veh_telem.mVirtualEnergy * 100.0,
             wheels=wheels,
             dent_severity=dent_severity,
         )
