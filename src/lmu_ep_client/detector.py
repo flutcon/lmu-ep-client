@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from lmu_ep_client.models import (
     EnergyData,
@@ -58,6 +61,7 @@ class TickData:
     elapsed: float
     driver: str
     vehicle: str
+    vehicle_model: str
     vehicle_class: str
     pit_state: int
     total_laps: int
@@ -114,14 +118,14 @@ class StintDetector:
                     session_type=SESSION_NAMES.get(tick.session_type, f"Unknown ({tick.session_type})"),
                     start_time=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
                     end_time="",
-                    vehicle=tick.vehicle,
+                    vehicle=tick.vehicle_model or tick.vehicle,
                     vehicle_class=tick.vehicle_class,
                 )
                 self._start_stint(tick)
                 events.add("session_start")
         else:
-            # Session end detection
-            if tick.game_phase == PHASE_SESSION_OVER:
+            # Session end detection (SessionOver or return to garage)
+            if tick.game_phase in (PHASE_SESSION_OVER, PHASE_GARAGE):
                 self._finalize_current_stint(tick)
                 if self.session:
                     self.session.end_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
@@ -162,9 +166,14 @@ class StintDetector:
         events: set[str] = set()
         prev = self._prev_pit_state
         curr = tick.pit_state
+        on_track = (PIT_NONE, PIT_REQUEST)
+        in_pit = (PIT_ENTERING, PIT_STOPPED, PIT_EXITING)
 
-        # ON_TRACK -> ENTERING: snapshot pre-pit, record pit_enter
-        if prev in (PIT_NONE, PIT_REQUEST) and curr == PIT_ENTERING:
+        if prev != curr:
+            logger.debug("Pit state: %d -> %d (elapsed=%.1f)", prev, curr, tick.elapsed)
+
+        # Entered pit zone: was on track, now in pit area
+        if prev in on_track and curr in in_pit:
             self._pre_pit = _PrePitSnapshot(
                 elapsed=tick.elapsed,
                 fuel=tick.fuel,
@@ -175,16 +184,18 @@ class StintDetector:
                 dent_severity=list(tick.dent_severity),
             )
             self._pit_enter_elapsed = tick.elapsed
+            self._pit_stand_elapsed = 0.0
             events.add("pit_enter")
 
-        # ENTERING -> STOPPED: record pit_stand time
-        elif prev == PIT_ENTERING and curr == PIT_STOPPED:
+        # Reached pit stand (record when we first see STOPPED)
+        if curr == PIT_STOPPED and prev != PIT_STOPPED:
             self._pit_stand_elapsed = tick.elapsed
 
-        # STOPPED -> EXITING: snapshot post-pit, record pit_exit
-        elif prev == PIT_STOPPED and curr == PIT_EXITING:
-            self._pit_stand_elapsed = self._pit_stand_elapsed or tick.elapsed
+        # Left pit zone: was in pit area, now back on track
+        if prev in in_pit and curr in on_track:
             pit_exit_elapsed = tick.elapsed
+            if not self._pit_stand_elapsed:
+                self._pit_stand_elapsed = self._pit_enter_elapsed
 
             if self._pre_pit and self._current_stint_start:
                 pre = self._pre_pit
@@ -252,10 +263,6 @@ class StintDetector:
                 self._pre_pit = None
 
             events.add("pit_exit")
-
-        # EXITING -> ON_TRACK: stint is now running
-        elif prev == PIT_EXITING and curr in (PIT_NONE, PIT_REQUEST):
-            events.add("on_track")
 
         return events
 

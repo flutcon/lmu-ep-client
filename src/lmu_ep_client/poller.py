@@ -43,6 +43,7 @@ def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
             elapsed=scoring_info.mCurrentET,
             driver=veh_scoring.mDriverName.decode().rstrip("\x00"),
             vehicle=veh_scoring.mVehicleName.decode().rstrip("\x00"),
+            vehicle_model=veh_telem.mVehicleModel.decode().rstrip("\x00"),
             vehicle_class=veh_scoring.mVehicleClass.decode().rstrip("\x00"),
             pit_state=veh_scoring.mPitState,
             total_laps=veh_scoring.mTotalLaps,
@@ -95,7 +96,7 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
 
             if "session_start" in events:
                 _log(f"Session detected: {detector.session.track} — {detector.session.session_type}")
-                _log(f"Vehicle: {tick.vehicle} ({tick.vehicle_class})")
+                _log(f"Vehicle: {tick.vehicle_model or tick.vehicle} ({tick.vehicle_class})")
                 _log(f"Stint 1 started — Driver: {tick.driver}")
 
             if "pit_enter" in events:

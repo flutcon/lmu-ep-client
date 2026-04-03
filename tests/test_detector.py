@@ -9,6 +9,7 @@ def _make_tick(
     elapsed: float = 0.0,
     driver: str = "Player",
     vehicle: str = "Porsche 963",
+    vehicle_model: str = "Porsche 963",
     vehicle_class: str = "Hypercar",
     pit_state: int = 0,
     total_laps: int = 0,
@@ -32,6 +33,7 @@ def _make_tick(
         elapsed=elapsed,
         driver=driver,
         vehicle=vehicle,
+        vehicle_model=vehicle_model,
         vehicle_class=vehicle_class,
         pit_state=pit_state,
         total_laps=total_laps,
@@ -45,11 +47,20 @@ def _make_tick(
 
 def test_session_start_detected():
     det = StintDetector()
-    # First tick in green flag phase
     events = det.update(_make_tick(game_phase=5, elapsed=10.0))
     assert "session_start" in events
     assert det.session is not None
     assert det.session.track == "Monza"
+
+
+def test_session_start_uses_vehicle_model():
+    det = StintDetector()
+    det.update(_make_tick(
+        game_phase=5,
+        vehicle="Team Entry Name",
+        vehicle_model="Aston Martin Vantage AMR LMGT3",
+    ))
+    assert det.session.vehicle == "Aston Martin Vantage AMR LMGT3"
 
 
 def test_no_session_in_garage():
@@ -73,16 +84,26 @@ def test_full_pit_cycle():
     assert "pit_enter" in events
 
     # Pit stopped
-    events = det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0, virtual_energy=40.0))
+    det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0, virtual_energy=40.0))
 
-    # Pit exiting — fuel/energy refilled, tires swapped
+    # Pit exiting
     fresh_wheels = [
         {"wear": 1.0, "compound_type": 0, "flat": False, "detached": False}
         for _ in range(4)
     ]
-    events = det.update(_make_tick(
+    det.update(_make_tick(
         elapsed=635.0,
         pit_state=4,
+        total_laps=10,
+        fuel=110.0,
+        virtual_energy=100.0,
+        wheels=fresh_wheels,
+    ))
+
+    # Back on track — this is when the stint finalizes
+    events = det.update(_make_tick(
+        elapsed=640.0,
+        pit_state=0,
         total_laps=10,
         fuel=110.0,
         virtual_energy=100.0,
@@ -102,7 +123,6 @@ def test_full_pit_cycle():
     assert pit is not None
     assert pit.pit_enter_elapsed == 600.0
     assert pit.pit_stand_elapsed == 612.0
-    assert pit.pit_exit_elapsed == 635.0
     assert pit.fuel_added_litres == 60.0
     assert pit.energy_added_percent == 60.0
     assert pit.driver_change is False
@@ -114,6 +134,23 @@ def test_full_pit_cycle():
         assert pit.tyres[pos].new_compound == "Soft"
 
 
+def test_pit_cycle_without_exiting_state():
+    """LMU may skip the EXITING(4) state entirely — going straight from STOPPED(3) to NONE(0)."""
+    det = StintDetector()
+    det.update(_make_tick(game_phase=5, elapsed=0.0))
+
+    # Enter pit
+    det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0))
+    # Stopped
+    det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0))
+    # Jump straight to on track (no state 4)
+    events = det.update(_make_tick(elapsed=635.0, pit_state=0, total_laps=10, fuel=110.0))
+
+    assert "pit_exit" in events
+    assert len(det.stints) == 1
+    assert det.stints[0].pit_stop is not None
+
+
 def test_driver_change_detection():
     det = StintDetector()
     det.update(_make_tick(game_phase=5, elapsed=0.0, driver="Driver A"))
@@ -122,9 +159,10 @@ def test_driver_change_detection():
     det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0, driver="Driver A"))
     det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0, driver="Driver A"))
 
-    # Exit pit as Driver B
-    det.update(_make_tick(elapsed=640.0, pit_state=4, total_laps=10, fuel=110.0, driver="Driver B"))
+    # Back on track as Driver B (skip EXITING state)
+    events = det.update(_make_tick(elapsed=640.0, pit_state=0, total_laps=10, fuel=110.0, driver="Driver B"))
 
+    assert "pit_exit" in events
     assert len(det.stints) == 1
     pit = det.stints[0].pit_stop
     assert pit is not None
@@ -141,7 +179,7 @@ def test_repair_detection():
     det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0, dent_severity=[0, 2, 1, 0, 0, 0, 0, 0]))
 
     # Exit pit with damage repaired
-    det.update(_make_tick(elapsed=650.0, pit_state=4, total_laps=10, fuel=110.0, dent_severity=[0, 0, 0, 0, 0, 0, 0, 0]))
+    det.update(_make_tick(elapsed=650.0, pit_state=0, total_laps=10, fuel=110.0, dent_severity=[0, 0, 0, 0, 0, 0, 0, 0]))
 
     pit = det.stints[0].pit_stop
     assert pit is not None
@@ -153,7 +191,7 @@ def test_no_repair_when_no_damage_change():
     det.update(_make_tick(game_phase=5, elapsed=0.0))
     det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0))
     det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0))
-    det.update(_make_tick(elapsed=635.0, pit_state=4, total_laps=10, fuel=110.0))
+    det.update(_make_tick(elapsed=635.0, pit_state=0, total_laps=10, fuel=110.0))
 
     pit = det.stints[0].pit_stop
     assert pit is not None
@@ -172,6 +210,17 @@ def test_session_end():
     assert det.stints[0].end_lap == 10
     assert det.session is not None
     assert det.session.end_time != ""
+
+
+def test_session_end_on_return_to_garage():
+    """Practice/qualifying: quitting back to garage should end the session."""
+    det = StintDetector()
+    det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=0))
+    det.update(_make_tick(elapsed=300.0, total_laps=5, fuel=80.0))
+
+    events = det.update(_make_tick(game_phase=0, elapsed=310.0, total_laps=5, fuel=80.0))
+    assert "session_end" in events
+    assert len(det.stints) == 1
 
 
 def test_finalize_on_shutdown():
@@ -197,8 +246,8 @@ def test_tire_not_changed_when_wear_similar():
     det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0, wheels=worn_wheels))
     det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0, wheels=worn_wheels))
 
-    # Exit with same wear (no tire change, just fuel)
-    det.update(_make_tick(elapsed=625.0, pit_state=4, total_laps=10, fuel=110.0, wheels=worn_wheels))
+    # Back on track with same wear (no tire change, just fuel)
+    det.update(_make_tick(elapsed=625.0, pit_state=0, total_laps=10, fuel=110.0, wheels=worn_wheels))
 
     pit = det.stints[0].pit_stop
     for pos in ["FL", "FR", "RL", "RR"]:
