@@ -63,6 +63,8 @@ def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
             wheels=wheels,
             dent_severity=dent_severity,
             finish_status=veh_scoring.mFinishStatus,
+            start_session_event=info.LMUData.generic.events.SME_START_SESSION,
+            end_session_event=info.LMUData.generic.events.SME_END_SESSION,
         )
     except Exception as e:
         logger.warning("Failed to read shared memory: %s", e, exc_info=True)
