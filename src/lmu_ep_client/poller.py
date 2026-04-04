@@ -62,6 +62,7 @@ def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
             virtual_energy=veh_telem.mVirtualEnergy * 100.0,
             wheels=wheels,
             dent_severity=dent_severity,
+            finish_status=veh_scoring.mFinishStatus,
         )
     except Exception as e:
         logger.warning("Failed to read shared memory: %s", e, exc_info=True)
@@ -82,6 +83,7 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
     last_tick: TickData | None = None
     file_path: Path | None = None
     _logged_waiting = False
+    _prev_finish_status: int = 0
 
     try:
         while True:
@@ -137,6 +139,13 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
                     file_path = flush_session(detector.session, detector.stints, output_dir)
                     last_flush = time.monotonic()
 
+            # Flush immediately when the player's race is done (finish/DNF/DQ)
+            if _prev_finish_status == 0 and tick.finish_status != 0 and detector.session:
+                file_path = flush_session(detector.session, detector.stints, output_dir)
+                last_flush = time.monotonic()
+                _log(f"Race finished — data saved: {file_path}")
+            _prev_finish_status = tick.finish_status
+
             if "session_end" in events:
                 if detector.session:
                     file_path = flush_session(detector.session, detector.stints, output_dir)
@@ -145,6 +154,7 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
                 detector = StintDetector()
                 last_flush = 0.0
                 file_path = None
+                _prev_finish_status = 0
 
             # Periodic flush
             now = time.monotonic()

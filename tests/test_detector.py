@@ -18,6 +18,7 @@ def _make_tick(
     virtual_energy: float = 100.0,
     wheels: list | None = None,
     dent_severity: list | None = None,
+    finish_status: int = 0,
 ) -> TickData:
     if wheels is None:
         wheels = [
@@ -42,6 +43,7 @@ def _make_tick(
         virtual_energy=virtual_energy,
         wheels=wheels,
         dent_severity=dent_severity,
+        finish_status=finish_status,
     )
 
 

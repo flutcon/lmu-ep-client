@@ -72,6 +72,7 @@ class TickData:
     virtual_energy: float
     wheels: list[dict]
     dent_severity: list[int]
+    finish_status: int  # 0=none, 1=finished, 2=dnf, 3=dq
 
 
 @dataclass
