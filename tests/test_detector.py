@@ -1,4 +1,4 @@
-from lmu_ep_client.detector import StintDetector, TickData
+from lmu_ep_client.detector import PHASE_GARAGE, StintDetector, TickData
 
 
 def _make_tick(
@@ -19,8 +19,6 @@ def _make_tick(
     wheels: list | None = None,
     dent_severity: list | None = None,
     finish_status: int = 0,
-    start_session_event: int = 1,
-    end_session_event: int = 0,
 ) -> TickData:
     if wheels is None:
         wheels = [
@@ -46,32 +44,28 @@ def _make_tick(
         wheels=wheels,
         dent_severity=dent_severity,
         finish_status=finish_status,
-        start_session_event=start_session_event,
-        end_session_event=end_session_event,
     )
 
 
 def _make_detector() -> StintDetector:
-    """Return a detector with the startup new-session guard cleared.
-    Primes with counter=0 so any subsequent tick with the default counter=1 fires session_start."""
+    """Return a detector with the startup new-session guard cleared."""
     det = StintDetector()
-    det.update(_make_tick(start_session_event=0, end_session_event=0))
+    det.update(_make_tick(game_phase=PHASE_GARAGE))
     return det
 
 
 def test_startup_ignores_active_session():
     """Tool should not record a session that is already running when it starts."""
     det = StintDetector()
-    # First tick: SME_START_SESSION=1 (session already started before tool launch)
-    events = det.update(_make_tick(start_session_event=1, elapsed=100.0))
+    # Active session already running at startup — should be ignored
+    events = det.update(_make_tick(game_phase=5, elapsed=100.0))
     assert "session_start" not in events
     assert "waiting_for_new_session" in events
     assert det.session is None
-    # Session continues — counter stays at 1
-    events = det.update(_make_tick(start_session_event=1, elapsed=200.0))
-    assert "waiting_for_new_session" in events
-    # New session starts — SME_START_SESSION increments to 2
-    events = det.update(_make_tick(start_session_event=2, elapsed=300.0))
+    # Session ends — guard clears
+    det.update(_make_tick(game_phase=8, elapsed=200.0))
+    # New session starts — should now be recorded
+    events = det.update(_make_tick(game_phase=5, elapsed=300.0))
     assert "session_start" in events
     assert det.session is not None
 
@@ -96,8 +90,7 @@ def test_session_start_uses_vehicle_model():
 
 def test_no_session_in_garage():
     det = _make_detector()
-    # No counter increment — no new session
-    events = det.update(_make_tick(start_session_event=0))
+    events = det.update(_make_tick(game_phase=0))
     assert "session_start" not in events
     assert det.session is None
 
@@ -235,7 +228,7 @@ def test_session_end():
     det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=0))
     det.update(_make_tick(elapsed=600.0, total_laps=10, fuel=50.0, virtual_energy=40.0))
 
-    events = det.update(_make_tick(game_phase=8, elapsed=610.0, total_laps=10, fuel=50.0, virtual_energy=40.0, end_session_event=1))
+    events = det.update(_make_tick(game_phase=8, elapsed=610.0, total_laps=10, fuel=50.0, virtual_energy=40.0))
     assert "session_end" in events
     assert len(det.stints) == 1
     assert det.stints[0].pit_stop is None
@@ -250,7 +243,7 @@ def test_session_end_on_return_to_garage():
     det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=0))
     det.update(_make_tick(elapsed=300.0, total_laps=5, fuel=80.0))
 
-    events = det.update(_make_tick(game_phase=0, elapsed=310.0, total_laps=5, fuel=80.0, end_session_event=1))
+    events = det.update(_make_tick(game_phase=0, elapsed=310.0, total_laps=5, fuel=80.0))
     assert "session_end" in events
     assert len(det.stints) == 1
 
@@ -306,7 +299,7 @@ def test_session_starts_in_pits_defers_stint():
     det.update(_make_tick(elapsed=300.0, total_laps=5, fuel=80.0))
 
     # End session
-    events = det.update(_make_tick(game_phase=8, elapsed=600.0, total_laps=10, fuel=50.0, end_session_event=1))
+    events = det.update(_make_tick(game_phase=8, elapsed=600.0, total_laps=10, fuel=50.0))
     assert "session_end" in events
     assert len(det.stints) == 1
     assert det.stints[0].stint_number == 1
@@ -347,7 +340,7 @@ def test_session_starts_in_pits_full_pit_cycle():
     assert det.stints[0].pit_stop.fuel_added_litres == 60.0
 
     # End session
-    events = det.update(_make_tick(game_phase=8, elapsed=900.0, total_laps=15, fuel=70.0, end_session_event=1))
+    events = det.update(_make_tick(game_phase=8, elapsed=900.0, total_laps=15, fuel=70.0))
     assert "session_end" in events
     assert len(det.stints) == 2
     assert det.stints[1].stint_number == 2
@@ -368,7 +361,7 @@ def test_session_starts_in_garage_pit_state_5():
     assert det._current_stint_start is not None
 
     # Drive and end session
-    events = det.update(_make_tick(game_phase=8, elapsed=600.0, total_laps=10, fuel=50.0, end_session_event=1))
+    events = det.update(_make_tick(game_phase=8, elapsed=600.0, total_laps=10, fuel=50.0))
     assert "session_end" in events
     assert len(det.stints) == 1
     assert det.stints[0].fuel.start_litres == 110.0
@@ -394,7 +387,7 @@ def test_drive_through_does_not_create_stint():
     assert len(det.stints) == 0  # no stint finalized
 
     # Continue driving and end session
-    events = det.update(_make_tick(game_phase=8, elapsed=900.0, total_laps=15, fuel=30.0, end_session_event=1))
+    events = det.update(_make_tick(game_phase=8, elapsed=900.0, total_laps=15, fuel=30.0))
     assert "session_end" in events
     assert len(det.stints) == 1  # only the one stint from start to end
     assert det.stints[0].pit_stop is None

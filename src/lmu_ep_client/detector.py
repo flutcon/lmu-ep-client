@@ -72,9 +72,7 @@ class TickData:
     virtual_energy: float
     wheels: list[dict]
     dent_severity: list[int]
-    finish_status: int       # 0=none, 1=finished, 2=dnf, 3=dq
-    start_session_event: int  # SME_START_SESSION counter — increments each time a session starts
-    end_session_event: int    # SME_END_SESSION counter — increments each time a session ends
+    finish_status: int  # 0=none, 1=finished, 2=dnf, 3=dq
 
 
 @dataclass
@@ -112,36 +110,24 @@ class StintDetector:
         self._pit_depart_elapsed: float = 0.0
         self._session_active: bool = False
         self._waiting_for_new_session: bool = True
-        # SME event counter baselines. Initialized to -1 (unset) until the first tick.
-        # Session start fires when start_session_event exceeds the baseline recorded at
-        # startup (or after the last session end). Session end fires when end_session_event
-        # exceeds the baseline recorded at session start.
-        self._start_event_baseline: int = -1
-        self._end_event_baseline: int = -1
 
     def update(self, tick: TickData) -> set[str]:
         events: set[str] = set()
 
         # On startup, ignore any already-running session and wait for a fresh one.
-        # Record the SME_START_SESSION counter on the first tick as the baseline.
-        # Once the counter exceeds that baseline a new session has started.
+        # Clear the flag once we see a non-active phase (monitor/garage/session over).
         if self._waiting_for_new_session:
-            if self._start_event_baseline == -1:
-                self._start_event_baseline = tick.start_session_event
-            if tick.start_session_event > self._start_event_baseline:
+            if tick.game_phase in (PHASE_GARAGE, PHASE_SESSION_OVER):
                 self._waiting_for_new_session = False
-                # Fall through to session start detection on this same tick.
             else:
                 events.add("waiting_for_new_session")
-                self._prev_pit_state = tick.pit_state
-                return events
+            self._prev_pit_state = tick.pit_state
+            return events
 
         # Session start detection
         if not self._session_active:
-            if tick.start_session_event > self._start_event_baseline:
+            if tick.game_phase not in (PHASE_GARAGE, PHASE_SESSION_OVER) and tick.game_phase > 0:
                 self._session_active = True
-                self._start_event_baseline = tick.start_session_event
-                self._end_event_baseline = tick.end_session_event
                 self.session = SessionData(
                     track=tick.track,
                     session_type=SESSION_NAMES.get(tick.session_type, f"Unknown ({tick.session_type})"),
@@ -158,8 +144,8 @@ class StintDetector:
                     logger.debug("Session started while in pits (pit_state=%d), deferring first stint", tick.pit_state)
                 events.add("session_start")
         else:
-            # Session end detection
-            if tick.end_session_event > self._end_event_baseline:
+            # Session end detection (SessionOver or return to garage)
+            if tick.game_phase in (PHASE_SESSION_OVER, PHASE_GARAGE):
                 self._finalize_current_stint(tick)
                 if self.session:
                     self.session.end_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
@@ -171,7 +157,6 @@ class StintDetector:
                 self._pit_stand_elapsed = 0.0
                 self._pit_depart_elapsed = 0.0
                 self._current_stint_start = None
-                self._end_event_baseline = tick.end_session_event
                 self._prev_pit_state = tick.pit_state
                 return events
 
