@@ -5,6 +5,7 @@ from lmu_ep_client.models import (
     SessionData,
     Stint,
     TireInfo,
+    TyreWearData,
 )
 
 
@@ -132,6 +133,10 @@ def test_stint_to_dict_with_pit():
         end_time_elapsed=3360.5,
         fuel=FuelData(start_litres=110.0, end_litres=12.3, capacity=110.0),
         energy=EnergyData(start_percent=100.0, end_percent=5.2),
+        tyre_wear=TyreWearData(
+            start={"FL": 1.0, "FR": 1.0, "RL": 1.0, "RR": 1.0},
+            end={"FL": 0.72, "FR": 0.68, "RL": 0.65, "RR": 0.63},
+        ),
         pit_stop=PitStop(
             pit_enter_elapsed=3360.5,
             pit_stand_elapsed=3372.0,
@@ -163,6 +168,10 @@ def test_stint_to_dict_no_pit():
         end_time_elapsed=5300.0,
         fuel=FuelData(start_litres=110.0, end_litres=30.0, capacity=110.0),
         energy=EnergyData(start_percent=100.0, end_percent=20.0),
+        tyre_wear=TyreWearData(
+            start={"FL": 1.0, "FR": 1.0, "RL": 1.0, "RR": 1.0},
+            end={"FL": 0.8, "FR": 0.8, "RL": 0.75, "RR": 0.75},
+        ),
         pit_stop=None,
     )
     result = stint.to_dict()

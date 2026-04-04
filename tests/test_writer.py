@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from lmu_ep_client.writer import session_filename, flush_session
-from lmu_ep_client.models import SessionData, Stint, FuelData, EnergyData, PitStop, TireInfo
+from lmu_ep_client.models import SessionData, Stint, FuelData, EnergyData, PitStop, TireInfo, TyreWearData
 
 
 def test_session_filename():
@@ -42,6 +42,10 @@ def test_flush_session_creates_file(tmp_path):
             end_time_elapsed=600.0,
             fuel=FuelData(start_litres=110.0, end_litres=70.0, capacity=110.0),
             energy=EnergyData(start_percent=100.0, end_percent=60.0),
+            tyre_wear=TyreWearData(
+                start={"FL": 1.0, "FR": 1.0, "RL": 1.0, "RR": 1.0},
+                end={"FL": 0.9, "FR": 0.9, "RL": 0.88, "RR": 0.88},
+            ),
         ),
     ]
     path = flush_session(session, stints, output_dir=tmp_path)
@@ -93,6 +97,10 @@ def test_full_session_json_structure(tmp_path):
             end_time_elapsed=3360.5,
             fuel=FuelData(start_litres=110.0, end_litres=12.3, capacity=110.0),
             energy=EnergyData(start_percent=100.0, end_percent=5.2),
+            tyre_wear=TyreWearData(
+                start={"FL": 1.0, "FR": 1.0, "RL": 1.0, "RR": 1.0},
+                end={"FL": 0.28, "FR": 0.32, "RL": 0.45, "RR": 0.42},
+            ),
             pit_stop=PitStop(
                 pit_enter_elapsed=3360.5,
                 pit_stand_elapsed=3372.0,
@@ -120,6 +128,10 @@ def test_full_session_json_structure(tmp_path):
             end_time_elapsed=6600.0,
             fuel=FuelData(start_litres=110.0, end_litres=15.0, capacity=110.0),
             energy=EnergyData(start_percent=100.0, end_percent=8.0),
+            tyre_wear=TyreWearData(
+                start={"FL": 1.0, "FR": 1.0, "RL": 1.0, "RR": 1.0},
+                end={"FL": 0.5, "FR": 0.52, "RL": 0.48, "RR": 0.46},
+            ),
         ),
     ]
 

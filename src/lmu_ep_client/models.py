@@ -56,6 +56,20 @@ class EnergyData:
 
 
 @dataclass
+class TyreWearData:
+    start: dict[str, float]  # FL/FR/RL/RR -> wear at stint start (1.0=fresh, 0.0=worn)
+    end: dict[str, float]    # wear at stint end (pre-pit or session end)
+
+    def to_dict(self) -> dict:
+        delta = {pos: round(self.start[pos] - self.end[pos], 4) for pos in self.start}
+        return {
+            "start": self.start,
+            "end": self.end,
+            "used": delta,
+        }
+
+
+@dataclass
 class PitStop:
     pit_enter_elapsed: float
     pit_stand_elapsed: float
@@ -97,6 +111,7 @@ class Stint:
     end_time_elapsed: float
     fuel: FuelData
     energy: EnergyData
+    tyre_wear: TyreWearData
     pit_stop: PitStop | None = None
 
     def to_dict(self) -> dict:
@@ -112,6 +127,7 @@ class Stint:
             "stint_duration_seconds": round(self.end_time_elapsed - self.start_time_elapsed, 1),
             "fuel": self.fuel.to_dict(total_laps=total_laps),
             "energy": self.energy.to_dict(total_laps=total_laps),
+            "tyre_wear": self.tyre_wear.to_dict(),
             "pit_stop": self.pit_stop.to_dict() if self.pit_stop else None,
         }
 

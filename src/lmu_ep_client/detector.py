@@ -13,6 +13,7 @@ from lmu_ep_client.models import (
     SessionData,
     Stint,
     TireInfo,
+    TyreWearData,
 )
 
 # Game phase values
@@ -95,6 +96,7 @@ class _StintStart:
     start_fuel: float
     fuel_capacity: float
     start_energy: float
+    start_wear: dict[str, float]  # FL/FR/RL/RR -> wear at stint start (1.0=fresh)
 
 
 class StintDetector:
@@ -181,6 +183,7 @@ class StintDetector:
             start_fuel=tick.fuel,
             fuel_capacity=tick.fuel_capacity,
             start_energy=tick.virtual_energy,
+            start_wear={pos: round(tick.wheels[i]["wear"], 4) for i, pos in enumerate(WHEEL_POSITIONS)},
         )
 
     def _check_pit_transitions(self, tick: TickData) -> set[str]:
@@ -286,6 +289,10 @@ class StintDetector:
                         start_percent=cs.start_energy,
                         end_percent=pre.energy,
                     ),
+                    tyre_wear=TyreWearData(
+                        start=cs.start_wear,
+                        end={pos: round(pre.wheels[i]["wear"], 4) for i, pos in enumerate(WHEEL_POSITIONS)},
+                    ),
                     pit_stop=pit_stop,
                 )
                 self.stints.append(stint)
@@ -321,6 +328,10 @@ class StintDetector:
             energy=EnergyData(
                 start_percent=cs.start_energy,
                 end_percent=tick.virtual_energy,
+            ),
+            tyre_wear=TyreWearData(
+                start=cs.start_wear,
+                end={pos: round(tick.wheels[i]["wear"], 4) for i, pos in enumerate(WHEEL_POSITIONS)},
             ),
         )
         self.stints.append(stint)
