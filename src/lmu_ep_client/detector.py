@@ -108,9 +108,20 @@ class StintDetector:
         self._pit_stand_elapsed: float = 0.0
         self._pit_depart_elapsed: float = 0.0
         self._session_active: bool = False
+        self._waiting_for_new_session: bool = True
 
     def update(self, tick: TickData) -> set[str]:
         events: set[str] = set()
+
+        # On startup, ignore any already-running session and wait for a fresh one.
+        # Clear the flag once we see a non-active phase (monitor/garage/session over).
+        if self._waiting_for_new_session:
+            if tick.game_phase in (PHASE_GARAGE, PHASE_SESSION_OVER):
+                self._waiting_for_new_session = False
+            else:
+                events.add("waiting_for_new_session")
+            self._prev_pit_state = tick.pit_state
+            return events
 
         # Session start detection
         if not self._session_active:

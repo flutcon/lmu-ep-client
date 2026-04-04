@@ -81,6 +81,7 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
     last_flush = 0.0
     last_tick: TickData | None = None
     file_path: Path | None = None
+    _logged_waiting = False
 
     try:
         while True:
@@ -104,6 +105,10 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
             last_tick = tick
 
             events = detector.update(tick)
+
+            if "waiting_for_new_session" in events and not _logged_waiting:
+                _log("LMU running — waiting for current session to end before recording.")
+                _logged_waiting = True
 
             if "session_start" in events:
                 _log(f"Session detected: {detector.session.track} — {detector.session.session_type}")

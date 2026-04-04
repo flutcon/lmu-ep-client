@@ -1,4 +1,4 @@
-from lmu_ep_client.detector import StintDetector, TickData
+from lmu_ep_client.detector import PHASE_GARAGE, StintDetector, TickData
 
 
 def _make_tick(
@@ -45,8 +45,31 @@ def _make_tick(
     )
 
 
-def test_session_start_detected():
+def _make_detector() -> StintDetector:
+    """Return a detector with the startup new-session guard cleared."""
     det = StintDetector()
+    det.update(_make_tick(game_phase=PHASE_GARAGE))
+    return det
+
+
+def test_startup_ignores_active_session():
+    """Tool should not record a session that is already running when it starts."""
+    det = StintDetector()
+    # Active session already running at startup — should be ignored
+    events = det.update(_make_tick(game_phase=5, elapsed=100.0))
+    assert "session_start" not in events
+    assert "waiting_for_new_session" in events
+    assert det.session is None
+    # Session ends — guard clears
+    det.update(_make_tick(game_phase=8, elapsed=200.0))
+    # New session starts — should now be recorded
+    events = det.update(_make_tick(game_phase=5, elapsed=300.0))
+    assert "session_start" in events
+    assert det.session is not None
+
+
+def test_session_start_detected():
+    det = _make_detector()
     events = det.update(_make_tick(game_phase=5, elapsed=10.0))
     assert "session_start" in events
     assert det.session is not None
@@ -54,7 +77,7 @@ def test_session_start_detected():
 
 
 def test_session_start_uses_vehicle_model():
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(
         game_phase=5,
         vehicle="Team Entry Name",
@@ -64,14 +87,14 @@ def test_session_start_uses_vehicle_model():
 
 
 def test_no_session_in_garage():
-    det = StintDetector()
+    det = _make_detector()
     events = det.update(_make_tick(game_phase=0))
     assert "session_start" not in events
     assert det.session is None
 
 
 def test_full_pit_cycle():
-    det = StintDetector()
+    det = _make_detector()
 
     # Start session
     det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=0))
@@ -136,7 +159,7 @@ def test_full_pit_cycle():
 
 def test_pit_cycle_without_exiting_state():
     """LMU may skip the EXITING(4) state entirely — going straight from STOPPED(3) to NONE(0)."""
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0))
 
     # Enter pit
@@ -152,7 +175,7 @@ def test_pit_cycle_without_exiting_state():
 
 
 def test_driver_change_detection():
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0, driver="Driver A"))
 
     # Enter pit as Driver A
@@ -171,7 +194,7 @@ def test_driver_change_detection():
 
 
 def test_repair_detection():
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0))
 
     # Enter pit with damage
@@ -187,7 +210,7 @@ def test_repair_detection():
 
 
 def test_no_repair_when_no_damage_change():
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0))
     det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0))
     det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0))
@@ -199,7 +222,7 @@ def test_no_repair_when_no_damage_change():
 
 
 def test_session_end():
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=0))
     det.update(_make_tick(elapsed=600.0, total_laps=10, fuel=50.0, virtual_energy=40.0))
 
@@ -214,7 +237,7 @@ def test_session_end():
 
 def test_session_end_on_return_to_garage():
     """Practice/qualifying: quitting back to garage should end the session."""
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=0))
     det.update(_make_tick(elapsed=300.0, total_laps=5, fuel=80.0))
 
@@ -224,7 +247,7 @@ def test_session_end_on_return_to_garage():
 
 
 def test_finalize_on_shutdown():
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=0))
     tick = _make_tick(elapsed=600.0, total_laps=10, fuel=50.0, virtual_energy=40.0)
     det.update(tick)
@@ -236,7 +259,7 @@ def test_finalize_on_shutdown():
 
 
 def test_tire_not_changed_when_wear_similar():
-    det = StintDetector()
+    det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0))
 
     worn_wheels = [
@@ -258,7 +281,7 @@ def test_tire_not_changed_when_wear_similar():
 
 def test_session_starts_in_pits_defers_stint():
     """Practice sessions start in the garage/pits — stint should only begin when car leaves pits."""
-    det = StintDetector()
+    det = _make_detector()
 
     # Session starts while car is in pit (pit_state=3 = STOPPED)
     events = det.update(_make_tick(game_phase=5, elapsed=0.0, pit_state=3))
@@ -286,7 +309,7 @@ def test_session_starts_in_pits_defers_stint():
 
 def test_session_starts_in_pits_full_pit_cycle():
     """Session starts in pits, car goes out, comes back for a pit stop, goes out again."""
-    det = StintDetector()
+    det = _make_detector()
 
     # Session starts in pits
     det.update(_make_tick(game_phase=5, elapsed=0.0, pit_state=3))
@@ -323,7 +346,7 @@ def test_session_starts_in_pits_full_pit_cycle():
 
 def test_session_starts_in_garage_pit_state_5():
     """LMU uses pit_state=5 for garage. Car should start stint when leaving garage to track."""
-    det = StintDetector()
+    det = _make_detector()
 
     # Session starts while car is in garage (pit_state=5)
     events = det.update(_make_tick(game_phase=5, elapsed=0.0, pit_state=5))
@@ -344,7 +367,7 @@ def test_session_starts_in_garage_pit_state_5():
 
 def test_drive_through_does_not_create_stint():
     """Drive-through penalty: car enters pit lane but never stops — no new stint."""
-    det = StintDetector()
+    det = _make_detector()
 
     # Start session on track
     det.update(_make_tick(game_phase=5, elapsed=0.0))
