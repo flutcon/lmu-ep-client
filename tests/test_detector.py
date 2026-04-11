@@ -19,6 +19,7 @@ def _make_tick(
     wheels: list | None = None,
     dent_severity: list | None = None,
     finish_status: int = 0,
+    speed: float = 0.0,
 ) -> TickData:
     if wheels is None:
         wheels = [
@@ -44,6 +45,7 @@ def _make_tick(
         wheels=wheels,
         dent_severity=dent_severity,
         finish_status=finish_status,
+        speed=speed,
     )
 
 
@@ -57,6 +59,23 @@ def test_startup_joins_active_session():
     events = det.update(_make_tick(game_phase=5, elapsed=100.0))
     assert "session_start" in events
     assert det.session is not None
+
+
+def test_startup_mid_stint_join():
+    """When car is already moving on startup, emit mid_stint_join alongside session_start."""
+    det = StintDetector()
+    events = det.update(_make_tick(game_phase=5, elapsed=500.0, speed=50.0))
+    assert "session_start" in events
+    assert "mid_stint_join" in events
+    assert det._current_stint_start is not None
+
+
+def test_startup_stationary_no_mid_stint_join():
+    """When car is stationary on startup, no mid_stint_join event."""
+    det = StintDetector()
+    events = det.update(_make_tick(game_phase=5, elapsed=0.0, speed=0.0))
+    assert "session_start" in events
+    assert "mid_stint_join" not in events
 
 
 def test_session_start_detected():

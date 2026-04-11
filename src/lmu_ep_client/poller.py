@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from pathlib import Path
 
@@ -54,6 +55,9 @@ def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
 
         dent_severity = [veh_telem.mDentSeverity[i] for i in range(8)]
 
+        v = veh_telem.mLocalVel
+        speed = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+
         return TickData(
             game_phase=scoring_info.mGamePhase,
             session_type=scoring_info.mSession,
@@ -71,6 +75,7 @@ def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
             wheels=wheels,
             dent_severity=dent_severity,
             finish_status=veh_scoring.mFinishStatus,
+            speed=speed,
         )
     except Exception as e:
         logger.warning("Failed to read shared memory: %s", e, exc_info=True)
@@ -118,7 +123,10 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
             if "session_start" in events:
                 _log(f"Session detected: {detector.session.track} — {detector.session.session_type}")
                 _log(f"Vehicle: {tick.vehicle_model or tick.vehicle} ({tick.vehicle_class})")
-                _log(f"Stint 1 started — Driver: {tick.driver}")
+                if "mid_stint_join" in events:
+                    _log(f"Joined mid-stint — Driver: {tick.driver} (partial stint data from this point)")
+                else:
+                    _log(f"Stint 1 started — Driver: {tick.driver}")
 
             if "pit_enter" in events:
                 _log("Pit entry detected")

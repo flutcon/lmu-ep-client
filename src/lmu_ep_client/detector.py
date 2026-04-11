@@ -54,6 +54,7 @@ WHEEL_POSITIONS = ["FL", "FR", "RL", "RR"]
 # Any wear increase during a pit stop means tires were swapped
 # (tires only lose wear during driving, so any gain = fresh rubber)
 TIRE_WEAR_CHANGE_THRESHOLD = 0.001
+MOVING_SPEED_THRESHOLD = 1.0  # m/s — above this the car is considered in motion
 
 
 @dataclass
@@ -74,6 +75,7 @@ class TickData:
     wheels: list[dict]
     dent_severity: list[int]
     finish_status: int  # 0=none, 1=finished, 2=dnf, 3=dq
+    speed: float        # m/s
 
 
 @dataclass
@@ -131,6 +133,8 @@ class StintDetector:
                 # until the car leaves the pits (practice sessions start in garage)
                 if tick.pit_state in (PIT_NONE, PIT_REQUEST):
                     self._start_stint(tick)
+                    if tick.speed > MOVING_SPEED_THRESHOLD:
+                        events.add("mid_stint_join")
                 else:
                     logger.debug("Session started while in pits (pit_state=%d), deferring first stint", tick.pit_state)
                 events.add("session_start")
