@@ -17,19 +17,22 @@ FLUSH_INTERVAL = 30.0
 WAIT_RETRY_INTERVAL = 10.0
 
 
-def _find_player_id(info: lmu_data.SimInfo, team_name: str | None, driver_name: str | None) -> int | None:
+def _find_player_id(info: lmu_data.SimInfo, team_name: str | None, driver_name: str | None, slot_id: int | None) -> int | None:
     """Return the slot ID of the player's car, or None if not yet found.
 
     Strategy (in order):
-    1. team_name: match by mPitGroup — stable across driver swaps.
-    2. driver_name: match by mDriverName — fallback when team names are generic (Group99 etc.)
-    3. mIsPlayer flag — only true when actively driving; works for solo use.
+    1. slot_id: exact slot ID — most reliable, found via --list-teams.
+    2. team_name: substring match against mVehicleName — stable across driver swaps.
+    3. driver_name: match by mDriverName — works when you know who is currently driving.
+    4. mIsPlayer flag — only true when actively driving; works for solo use.
     """
     scoring_info = info.LMUData.scoring.scoringInfo
     num_vehicles = scoring_info.mNumVehicles
     vehicles = [info.LMUData.scoring.vehScoringInfo[i] for i in range(num_vehicles)]
 
-    if team_name:
+    if slot_id is not None:
+        entry = next((v for v in vehicles if v.mID == slot_id), None)
+    elif team_name:
         # Substring match against mVehicleName — the entry/team name is
         # embedded there (e.g. "BMW GT3 Custom Team 2025 #397") and stays
         # constant regardless of who is currently driving.
@@ -110,7 +113,7 @@ def _log(msg: str) -> None:
     print(f"[{timestamp}] {msg}")
 
 
-def run(output_dir: Path | None = None, stop_event=None, team_name: str | None = None, driver_name: str | None = None) -> None:
+def run(output_dir: Path | None = None, stop_event=None, team_name: str | None = None, driver_name: str | None = None, slot_id: int | None = None) -> None:
     _log("Waiting for LMU session...")
 
     info: lmu_data.SimInfo | None = None
@@ -138,9 +141,11 @@ def run(output_dir: Path | None = None, stop_event=None, team_name: str | None =
             # Latch the player's car slot ID once, then track by ID for the full
             # session — covers spectating between stints in team races.
             if player_id is None:
-                player_id = _find_player_id(info, team_name, driver_name)
+                player_id = _find_player_id(info, team_name, driver_name, slot_id)
                 if player_id is None:
-                    if team_name:
+                    if slot_id is not None:
+                        _log(f"Waiting for slot ID {slot_id} to appear in session...")
+                    elif team_name:
                         _log(f"Waiting for team '{team_name}' to appear in session...")
                     elif driver_name:
                         _log(f"Waiting for driver '{driver_name}' to appear in session...")

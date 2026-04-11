@@ -28,21 +28,21 @@ def _list_teams() -> None:
 
         track = _decode(scoring_info.mTrackName)
         print(f"Session: {track}  ({num_vehicles} cars)\n")
-        print(f"  {'#':<4} {'Driver':<24} {'Vehicle':<28} {'Team/PitGroup':<24} {'Class'}")
-        print(f"  {'-'*4} {'-'*24} {'-'*28} {'-'*24} {'-'*16}")
+        print(f"  {'#':<4} {'ID':<5} {'Driver':<24} {'Vehicle':<36} {'Class'}")
+        print(f"  {'-'*4} {'-'*5} {'-'*24} {'-'*36} {'-'*16}")
 
         for i in range(num_vehicles):
             v = info.LMUData.scoring.vehScoringInfo[i]
             driver = _decode(v.mDriverName)
             vehicle = _decode(v.mVehicleName)
-            team = _decode(v.mPitGroup)
             cls = _decode(v.mVehicleClass)
             place = v.mPlace
+            slot_id = v.mID
             marker = " *" if v.mIsPlayer else ""
-            print(f"  {place:<4} {driver:<24} {vehicle:<28} {team:<24} {cls}{marker}")
+            print(f"  {place:<4} {slot_id:<5} {driver:<24} {vehicle:<36} {cls}{marker}")
 
         print("\n  * = your car (only visible when you are driving)")
-        print("  Use --team <name> or --driver <name> to track a specific car")
+        print("  Use --driver <name>, --team <name>, or --slot <id> to track a specific car")
     finally:
         info.close()
 
@@ -74,6 +74,13 @@ def main() -> None:
         help="Your driver name — use when team names show as 'Group99' etc.",
     )
     parser.add_argument(
+        "--slot",
+        metavar="ID",
+        type=int,
+        default=None,
+        help="Slot ID of the car to track (shown in --list-teams output)",
+    )
+    parser.add_argument(
         "--list-teams",
         action="store_true",
         help="List all teams and drivers in the current session and exit",
@@ -94,7 +101,7 @@ def main() -> None:
         _list_teams()
         return
 
-    run(output_dir=args.output_dir, team_name=args.team, driver_name=args.driver)
+    run(output_dir=args.output_dir, team_name=args.team, driver_name=args.driver, slot_id=args.slot)
 
 
 if __name__ == "__main__":
