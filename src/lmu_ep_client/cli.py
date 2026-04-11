@@ -2,22 +2,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 from pathlib import Path
 
 from lmu_ep_client.poller import run
 from pyLMUSharedMemory import lmu_data
 
-_GENERIC_GROUP = re.compile(r'^Group\d+$', re.IGNORECASE)
-
-
 def _decode(b) -> str:
     return b.decode().rstrip("\x00")
-
-
-def _display_team(pit_group: str) -> str:
-    """Return blank if pit group is a generic placeholder like 'Group99'."""
-    return "" if _GENERIC_GROUP.match(pit_group) else pit_group
 
 
 def _list_teams() -> None:
@@ -37,19 +28,20 @@ def _list_teams() -> None:
 
         track = _decode(scoring_info.mTrackName)
         print(f"Session: {track}  ({num_vehicles} cars)\n")
-        print(f"  {'#':<4} {'Team':<28} {'Driver':<24} {'Class'}")
-        print(f"  {'-'*4} {'-'*28} {'-'*24} {'-'*16}")
+        print(f"  {'#':<4} {'Driver':<24} {'Vehicle':<28} {'Team/PitGroup':<24} {'Class'}")
+        print(f"  {'-'*4} {'-'*24} {'-'*28} {'-'*24} {'-'*16}")
 
         for i in range(num_vehicles):
             v = info.LMUData.scoring.vehScoringInfo[i]
-            team = _display_team(_decode(v.mPitGroup))
             driver = _decode(v.mDriverName)
+            vehicle = _decode(v.mVehicleName)
+            team = _decode(v.mPitGroup)
             cls = _decode(v.mVehicleClass)
             place = v.mPlace
             marker = " *" if v.mIsPlayer else ""
-            print(f"  {place:<4} {team:<28} {driver:<24} {cls}{marker}")
+            print(f"  {place:<4} {driver:<24} {vehicle:<28} {team:<24} {cls}{marker}")
 
-        print("\n  * = your car")
+        print("\n  * = your car (only visible when you are driving)")
         print("  Use --team <name> or --driver <name> to track a specific car")
     finally:
         info.close()
