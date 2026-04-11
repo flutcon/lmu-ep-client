@@ -48,24 +48,13 @@ def _make_tick(
 
 
 def _make_detector() -> StintDetector:
-    """Return a detector with the startup new-session guard cleared."""
-    det = StintDetector()
-    det.update(_make_tick(game_phase=PHASE_GARAGE))
-    return det
+    return StintDetector()
 
 
-def test_startup_ignores_active_session():
-    """Tool should not record a session that is already running when it starts."""
+def test_startup_joins_active_session():
+    """Tool should immediately record a session that is already running when it starts."""
     det = StintDetector()
-    # Active session already running at startup — should be ignored
     events = det.update(_make_tick(game_phase=5, elapsed=100.0))
-    assert "session_start" not in events
-    assert "waiting_for_new_session" in events
-    assert det.session is None
-    # Session ends — guard clears
-    det.update(_make_tick(game_phase=8, elapsed=200.0))
-    # New session starts — should now be recorded
-    events = det.update(_make_tick(game_phase=5, elapsed=300.0))
     assert "session_start" in events
     assert det.session is not None
 
