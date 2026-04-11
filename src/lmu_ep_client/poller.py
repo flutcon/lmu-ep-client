@@ -17,23 +17,32 @@ FLUSH_INTERVAL = 30.0
 WAIT_RETRY_INTERVAL = 10.0
 
 
-def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
+def _find_player_id(info: lmu_data.SimInfo) -> int | None:
+    """Return the slot ID of the player's car, or None if not found."""
+    scoring_info = info.LMUData.scoring.scoringInfo
+    num_vehicles = scoring_info.mNumVehicles
+    entry = next(
+        (info.LMUData.scoring.vehScoringInfo[i] for i in range(num_vehicles)
+         if info.LMUData.scoring.vehScoringInfo[i].mIsPlayer),
+        None,
+    )
+    return entry.mID if entry is not None else None
+
+
+def _read_tick(info: lmu_data.SimInfo, player_id: int) -> TickData | None:
     try:
         scoring_info = info.LMUData.scoring.scoringInfo
         num_vehicles = scoring_info.mNumVehicles
 
-        # Find the player's car via mIsPlayer flag — reliable in team races where
-        # playerVehicleIdx may point to the spectated car rather than the team car.
+        # Use the latched slot ID to find the team car regardless of who is driving
         veh_scoring = next(
             (info.LMUData.scoring.vehScoringInfo[i] for i in range(num_vehicles)
-             if info.LMUData.scoring.vehScoringInfo[i].mIsPlayer),
+             if info.LMUData.scoring.vehScoringInfo[i].mID == player_id),
             None,
         )
         if veh_scoring is None:
             return None
 
-        # Match telemetry by slot ID
-        player_id = veh_scoring.mID
         veh_telem = next(
             (info.LMUData.telemetry.telemInfo[i] for i in range(num_vehicles)
              if info.LMUData.telemetry.telemInfo[i].mID == player_id),
@@ -92,6 +101,7 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
     _log("Waiting for LMU session...")
 
     info: lmu_data.SimInfo | None = None
+    player_id: int | None = None
     detector = StintDetector()
     last_flush = 0.0
     last_tick: TickData | None = None
@@ -112,7 +122,16 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
                     time.sleep(WAIT_RETRY_INTERVAL)
                     continue
 
-            tick = _read_tick(info)
+            # Latch the player's car slot ID once via mIsPlayer, then track
+            # that car for the rest of the session (covers spectating between stints)
+            if player_id is None:
+                player_id = _find_player_id(info)
+                if player_id is None:
+                    time.sleep(POLL_INTERVAL)
+                    continue
+                _log(f"Player car identified (slot ID {player_id})")
+
+            tick = _read_tick(info, player_id)
             if tick is None:
                 time.sleep(POLL_INTERVAL)
                 continue
@@ -164,6 +183,7 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
                     _log(f"Session ended. Saved: {file_path}")
                 # Reset for next session
                 detector = StintDetector()
+                player_id = None
                 last_flush = 0.0
                 file_path = None
                 _prev_finish_status = 0
