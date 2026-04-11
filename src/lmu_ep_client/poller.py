@@ -19,19 +19,27 @@ WAIT_RETRY_INTERVAL = 10.0
 def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
     try:
         scoring_info = info.LMUData.scoring.scoringInfo
-        player_idx = info.LMUData.telemetry.playerVehicleIdx
-
-        veh_telem = info.LMUData.telemetry.telemInfo[player_idx]
-
-        # Scoring and telemetry arrays may be ordered differently in multiplayer.
-        # Match by slot ID to ensure we always read the local player's scoring data.
-        player_id = veh_telem.mID
         num_vehicles = scoring_info.mNumVehicles
+
+        # Find the player's car via mIsPlayer flag — reliable in team races where
+        # playerVehicleIdx may point to the spectated car rather than the team car.
         veh_scoring = next(
             (info.LMUData.scoring.vehScoringInfo[i] for i in range(num_vehicles)
-             if info.LMUData.scoring.vehScoringInfo[i].mID == player_id),
-            info.LMUData.scoring.vehScoringInfo[player_idx],  # fallback
+             if info.LMUData.scoring.vehScoringInfo[i].mIsPlayer),
+            None,
         )
+        if veh_scoring is None:
+            return None
+
+        # Match telemetry by slot ID
+        player_id = veh_scoring.mID
+        veh_telem = next(
+            (info.LMUData.telemetry.telemInfo[i] for i in range(num_vehicles)
+             if info.LMUData.telemetry.telemInfo[i].mID == player_id),
+            None,
+        )
+        if veh_telem is None:
+            return None
 
         wheels = []
         for i in range(4):
