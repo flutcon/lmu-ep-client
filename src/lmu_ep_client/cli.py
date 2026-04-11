@@ -2,10 +2,22 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 from pathlib import Path
 
 from lmu_ep_client.poller import run
 from pyLMUSharedMemory import lmu_data
+
+_GENERIC_GROUP = re.compile(r'^Group\d+$', re.IGNORECASE)
+
+
+def _decode(b) -> str:
+    return b.decode().rstrip("\x00")
+
+
+def _display_team(pit_group: str) -> str:
+    """Return blank if pit group is a generic placeholder like 'Group99'."""
+    return "" if _GENERIC_GROUP.match(pit_group) else pit_group
 
 
 def _list_teams() -> None:
@@ -23,21 +35,22 @@ def _list_teams() -> None:
             print("No active session found.")
             return
 
-        track = scoring_info.mTrackName.decode().rstrip("\x00")
+        track = _decode(scoring_info.mTrackName)
         print(f"Session: {track}  ({num_vehicles} cars)\n")
         print(f"  {'#':<4} {'Team':<28} {'Driver':<24} {'Class'}")
         print(f"  {'-'*4} {'-'*28} {'-'*24} {'-'*16}")
 
         for i in range(num_vehicles):
             v = info.LMUData.scoring.vehScoringInfo[i]
-            team = v.mPitGroup.decode().rstrip("\x00")
-            driver = v.mDriverName.decode().rstrip("\x00")
-            cls = v.mVehicleClass.decode().rstrip("\x00")
+            team = _display_team(_decode(v.mPitGroup))
+            driver = _decode(v.mDriverName)
+            cls = _decode(v.mVehicleClass)
             place = v.mPlace
             marker = " *" if v.mIsPlayer else ""
             print(f"  {place:<4} {team:<28} {driver:<24} {cls}{marker}")
 
         print("\n  * = your car")
+        print("  Use --team <name> or --driver <name> to track a specific car")
     finally:
         info.close()
 
@@ -59,7 +72,14 @@ def main() -> None:
         metavar="NAME",
         type=str,
         default=None,
-        help="Team name as shown in-game (required for team races to track the correct car)",
+        help="Team name (mPitGroup) to track — use when teams have real names",
+    )
+    parser.add_argument(
+        "--driver",
+        metavar="NAME",
+        type=str,
+        default=None,
+        help="Your driver name — use when team names show as 'Group99' etc.",
     )
     parser.add_argument(
         "--list-teams",
@@ -82,7 +102,7 @@ def main() -> None:
         _list_teams()
         return
 
-    run(output_dir=args.output_dir, team_name=args.team)
+    run(output_dir=args.output_dir, team_name=args.team, driver_name=args.driver)
 
 
 if __name__ == "__main__":
