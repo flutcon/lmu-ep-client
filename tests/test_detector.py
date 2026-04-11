@@ -20,6 +20,7 @@ def _make_tick(
     dent_severity: list | None = None,
     finish_status: int = 0,
     speed: float = 0.0,
+    team: str = "Team A",
 ) -> TickData:
     if wheels is None:
         wheels = [
@@ -46,6 +47,7 @@ def _make_tick(
         dent_severity=dent_severity,
         finish_status=finish_status,
         speed=speed,
+        team=team,
     )
 
 

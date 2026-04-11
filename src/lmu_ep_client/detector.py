@@ -76,6 +76,7 @@ class TickData:
     dent_severity: list[int]
     finish_status: int  # 0=none, 1=finished, 2=dnf, 3=dq
     speed: float        # m/s
+    team: str
 
 
 @dataclass

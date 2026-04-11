@@ -76,6 +76,7 @@ def _read_tick(info: lmu_data.SimInfo) -> TickData | None:
             dent_severity=dent_severity,
             finish_status=veh_scoring.mFinishStatus,
             speed=speed,
+            team=veh_scoring.mPitGroup.decode().rstrip("\x00"),
         )
     except Exception as e:
         logger.warning("Failed to read shared memory: %s", e, exc_info=True)
@@ -124,9 +125,9 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
                 _log(f"Session detected: {detector.session.track} — {detector.session.session_type}")
                 _log(f"Vehicle: {tick.vehicle_model or tick.vehicle} ({tick.vehicle_class})")
                 if "mid_stint_join" in events:
-                    _log(f"Joined mid-stint — Driver: {tick.driver} (partial stint data from this point)")
+                    _log(f"Joined mid-stint — Driver: {tick.driver} ({tick.team}) (partial stint data from this point)")
                 else:
-                    _log(f"Stint 1 started — Driver: {tick.driver}")
+                    _log(f"Stint 1 started — Driver: {tick.driver} ({tick.team})")
 
             if "pit_enter" in events:
                 _log("Pit entry detected")
@@ -143,7 +144,7 @@ def run(output_dir: Path | None = None, stop_event=None) -> None:
                 _log(msg)
 
                 next_stint_num = len(detector.stints) + 1
-                _log(f"Stint {next_stint_num} started — Driver: {tick.driver}")
+                _log(f"Stint {next_stint_num} started — Driver: {tick.driver} ({tick.team})")
 
                 # Flush on stint completion
                 if detector.session:
