@@ -20,6 +20,13 @@ def main() -> None:
         help="Directory to write session JSON files (default: ./sessions/)",
     )
     parser.add_argument(
+        "--driver",
+        metavar="NAME",
+        type=str,
+        default=None,
+        help="Your in-game driver name (required for team races when starting as spectator)",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging",
@@ -31,7 +38,7 @@ def main() -> None:
         format="%(levelname)s:%(name)s:%(message)s",
     )
 
-    run(output_dir=args.output_dir)
+    run(output_dir=args.output_dir, driver_name=args.driver)
 
 
 if __name__ == "__main__":
