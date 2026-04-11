@@ -30,7 +30,10 @@ def _find_player_id(info: lmu_data.SimInfo, team_name: str | None, driver_name: 
     vehicles = [info.LMUData.scoring.vehScoringInfo[i] for i in range(num_vehicles)]
 
     if team_name:
-        entry = next((v for v in vehicles if v.mPitGroup.decode().rstrip("\x00") == team_name), None)
+        # Substring match against mVehicleName — the entry/team name is
+        # embedded there (e.g. "BMW GT3 Custom Team 2025 #397") and stays
+        # constant regardless of who is currently driving.
+        entry = next((v for v in vehicles if team_name.lower() in v.mVehicleName.decode().rstrip("\x00").lower()), None)
     elif driver_name:
         entry = next((v for v in vehicles if v.mDriverName.decode().rstrip("\x00") == driver_name), None)
     else:

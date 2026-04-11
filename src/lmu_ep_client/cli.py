@@ -64,7 +64,7 @@ def main() -> None:
         metavar="NAME",
         type=str,
         default=None,
-        help="Team name (mPitGroup) to track — use when teams have real names",
+        help="Substring match against vehicle/entry name (e.g. 'Custom Team 2025')",
     )
     parser.add_argument(
         "--driver",
