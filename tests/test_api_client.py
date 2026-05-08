@@ -185,6 +185,57 @@ def test_http_error_with_non_json_body():
     assert "oops" in excinfo.value.message
 
 
+def test_list_registrations_calls_correct_path():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        return _FakeResponse(b"[]")
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        result = c.list_registrations()
+
+    assert result == []
+    assert captured["url"] == "https://lmu-ep.vercel.app/api/tracking/registrations"
+    assert captured["method"] == "GET"
+
+
+def test_create_session_posts_to_correct_path():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        return _FakeResponse(b'{"id":"s1"}')
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        result = c.create_session("reg-uuid")
+
+    assert result == {"id": "s1"}
+    assert captured["url"] == "https://lmu-ep.vercel.app/api/tracking/registrations/reg-uuid/session"
+    assert captured["method"] == "POST"
+
+
+def test_get_session_calls_correct_path():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        return _FakeResponse(b'{"id":"s1","teamMembers":[]}')
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        result = c.get_session("reg-uuid")
+
+    assert result == {"id": "s1", "teamMembers": []}
+    assert captured["url"] == "https://lmu-ep.vercel.app/api/tracking/registrations/reg-uuid/session"
+    assert captured["method"] == "GET"
+
+
 def test_network_error_wrapped():
     c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
 

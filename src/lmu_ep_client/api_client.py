@@ -89,3 +89,12 @@ class TrackingClient:
 
     def delete(self, path: str) -> Any:
         return self._request("DELETE", path)
+
+    def list_registrations(self) -> list[dict]:
+        return self.get("/api/tracking/registrations")
+
+    def create_session(self, registration_id: str) -> dict:
+        return self.post(f"/api/tracking/registrations/{registration_id}/session")
+
+    def get_session(self, registration_id: str) -> dict:
+        return self.get(f"/api/tracking/registrations/{registration_id}/session")

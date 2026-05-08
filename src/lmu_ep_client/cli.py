@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from lmu_ep_client.api_client import DEFAULT_API_URL
+from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.poller import run
 from pyLMUSharedMemory import lmu_data
 
@@ -46,6 +46,33 @@ def _list_teams() -> None:
         print("  Use --driver <name>, --team <name>, or --slot <id> to track a specific car")
     finally:
         info.close()
+
+
+def _list_registrations(api: TrackingClient) -> None:
+    try:
+        regs = api.list_registrations()
+    except ApiError as e:
+        print(f"Failed to list registrations: {e}")
+        return
+
+    if not regs:
+        print("No registrations found for this team.")
+        return
+
+    print(f"  {'ID':<38} {'Track':<14} {'Layout':<10} {'Car':<22} {'Starts':<22} Tracking")
+    print(f"  {'-'*38} {'-'*14} {'-'*10} {'-'*22} {'-'*22} {'-'*8}")
+    for r in regs:
+        starts = r.get("startsAt") or "-"
+        tracking = "yes" if r.get("hasTrackingSession") else "no"
+        layout = r.get("trackLayoutKey") or "-"
+        title = r.get("eventTitle") or ""
+        print(
+            f"  {r['id']:<38} {(r.get('trackKey') or '-'):<14} {layout:<10} "
+            f"{(r.get('carKey') or '-'):<22} {starts:<22} {tracking}"
+        )
+        if title:
+            print(f"    {title}")
+    print("\n  Use --registration-id <ID> to track events against one of these.")
 
 
 def main() -> None:
@@ -101,6 +128,18 @@ def main() -> None:
         help="Bearer API key for the tracking API. If omitted, only local JSON files are written.",
     )
     parser.add_argument(
+        "--registration-id",
+        metavar="UUID",
+        type=str,
+        default=None,
+        help="Registration ID to track events against (see --list-registrations)",
+    )
+    parser.add_argument(
+        "--list-registrations",
+        action="store_true",
+        help="List your team's registrations from the API and exit. Requires --api-key.",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging",
@@ -116,6 +155,17 @@ def main() -> None:
         _list_teams()
         return
 
+    if args.list_registrations:
+        if not args.api_key:
+            parser.error("--list-registrations requires --api-key")
+        _list_registrations(TrackingClient(api_url=args.api_url, api_key=args.api_key))
+        return
+
+    if args.api_key and not args.registration_id:
+        parser.error("--api-key requires --registration-id (use --list-registrations to find one)")
+    if args.registration_id and not args.api_key:
+        parser.error("--registration-id requires --api-key")
+
     run(
         output_dir=args.output_dir,
         team_name=args.team,
@@ -123,6 +173,7 @@ def main() -> None:
         slot_id=args.slot,
         api_url=args.api_url,
         api_key=args.api_key,
+        registration_id=args.registration_id,
     )
 
 

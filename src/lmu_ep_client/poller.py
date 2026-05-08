@@ -7,8 +7,9 @@ from pathlib import Path
 
 from pyLMUSharedMemory import lmu_data
 
-from lmu_ep_client.api_client import DEFAULT_API_URL, TrackingClient
+from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.detector import StintDetector, TickData
+from lmu_ep_client.session_context import SessionContext, fetch_session_context
 from lmu_ep_client.writer import flush_session
 
 logger = logging.getLogger(__name__)
@@ -122,11 +123,27 @@ def run(
     slot_id: int | None = None,
     api_url: str | None = None,
     api_key: str | None = None,
+    registration_id: str | None = None,
 ) -> None:
     api: TrackingClient | None = None
+    session_ctx: SessionContext | None = None
     if api_key:
         api = TrackingClient(api_url=api_url or DEFAULT_API_URL, api_key=api_key)
         _log(f"Tracking API: {api.base_url}")
+        if registration_id:
+            try:
+                session_ctx = fetch_session_context(api, registration_id)
+            except ApiError as e:
+                _log(f"Failed to initialize tracking session: {e}")
+                return
+            roster_size = len(session_ctx.driver_to_member_id)
+            _log(
+                f"Tracking session ready (registration={registration_id}, "
+                f"session={session_ctx.session_id}, roster={roster_size} drivers)"
+            )
+            if roster_size:
+                names = ", ".join(sorted(session_ctx.driver_to_member_id))
+                _log(f"Recognized drivers: {names}")
 
     _log("Waiting for LMU session...")
 
