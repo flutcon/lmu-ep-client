@@ -4,6 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from lmu_ep_client.api_client import DEFAULT_API_URL
 from lmu_ep_client.poller import run
 from pyLMUSharedMemory import lmu_data
 
@@ -86,6 +87,20 @@ def main() -> None:
         help="List all teams and drivers in the current session and exit",
     )
     parser.add_argument(
+        "--api-url",
+        metavar="URL",
+        type=str,
+        default=DEFAULT_API_URL,
+        help=f"Tracking API base URL (default: {DEFAULT_API_URL})",
+    )
+    parser.add_argument(
+        "--api-key",
+        metavar="KEY",
+        type=str,
+        default=None,
+        help="Bearer API key for the tracking API. If omitted, only local JSON files are written.",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging",
@@ -101,7 +116,14 @@ def main() -> None:
         _list_teams()
         return
 
-    run(output_dir=args.output_dir, team_name=args.team, driver_name=args.driver, slot_id=args.slot)
+    run(
+        output_dir=args.output_dir,
+        team_name=args.team,
+        driver_name=args.driver,
+        slot_id=args.slot,
+        api_url=args.api_url,
+        api_key=args.api_key,
+    )
 
 
 if __name__ == "__main__":

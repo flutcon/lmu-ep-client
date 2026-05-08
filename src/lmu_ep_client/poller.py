@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pyLMUSharedMemory import lmu_data
 
+from lmu_ep_client.api_client import DEFAULT_API_URL, TrackingClient
 from lmu_ep_client.detector import StintDetector, TickData
 from lmu_ep_client.writer import flush_session
 
@@ -113,7 +114,20 @@ def _log(msg: str) -> None:
     print(f"[{timestamp}] {msg}")
 
 
-def run(output_dir: Path | None = None, stop_event=None, team_name: str | None = None, driver_name: str | None = None, slot_id: int | None = None) -> None:
+def run(
+    output_dir: Path | None = None,
+    stop_event=None,
+    team_name: str | None = None,
+    driver_name: str | None = None,
+    slot_id: int | None = None,
+    api_url: str | None = None,
+    api_key: str | None = None,
+) -> None:
+    api: TrackingClient | None = None
+    if api_key:
+        api = TrackingClient(api_url=api_url or DEFAULT_API_URL, api_key=api_key)
+        _log(f"Tracking API: {api.base_url}")
+
     _log("Waiting for LMU session...")
 
     info: lmu_data.SimInfo | None = None
