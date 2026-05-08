@@ -10,6 +10,7 @@ from pyLMUSharedMemory import lmu_data
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.detector import StintDetector, TickData
 from lmu_ep_client.session_context import SessionContext, fetch_session_context
+from lmu_ep_client.tracking_publisher import TrackingPublisher
 from lmu_ep_client.writer import flush_session
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,7 @@ def run(
 ) -> None:
     api: TrackingClient | None = None
     session_ctx: SessionContext | None = None
+    publisher: TrackingPublisher | None = None
     if api_key:
         api = TrackingClient(api_url=api_url or DEFAULT_API_URL, api_key=api_key)
         _log(f"Tracking API: {api.base_url}")
@@ -136,6 +138,7 @@ def run(
             except ApiError as e:
                 _log(f"Failed to initialize tracking session: {e}")
                 return
+            publisher = TrackingPublisher(api, session_ctx)
             roster_size = len(session_ctx.driver_to_member_id)
             _log(
                 f"Tracking session ready (registration={registration_id}, "
@@ -200,6 +203,8 @@ def run(
                     _log(f"Joined mid-stint — Driver: {tick.driver} ({tick.team}) (partial stint data from this point)")
                 else:
                     _log(f"Stint 1 started — Driver: {tick.driver} ({tick.team})")
+                if publisher:
+                    publisher.driver_started(tick.driver)
 
             if "pit_enter" in events:
                 _log("Pit entry detected")
@@ -218,6 +223,13 @@ def run(
                 next_stint_num = len(detector.stints) + 1
                 _log(f"Stint {next_stint_num} started — Driver: {tick.driver} ({tick.team})")
 
+                if publisher:
+                    publisher.pitstop(
+                        prev_driver=stint.driver,
+                        new_driver=tick.driver,
+                        meta=pit_dict,
+                    )
+
                 # Flush on stint completion
                 if detector.session:
                     file_path = flush_session(detector.session, detector.stints, output_dir)
@@ -231,6 +243,8 @@ def run(
             _prev_finish_status = tick.finish_status
 
             if "session_end" in events:
+                if publisher and tick.driver:
+                    publisher.driver_stopped(tick.driver)
                 if detector.session:
                     file_path = flush_session(detector.session, detector.stints, output_dir)
                     _log(f"Session ended. Saved: {file_path}")

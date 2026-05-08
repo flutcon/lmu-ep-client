@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass, field
 
-from lmu_ep_client.api_client import TrackingClient
+from lmu_ep_client.api_client import ApiError, TrackingClient
+
+logger = logging.getLogger(__name__)
+
+REFRESH_THROTTLE_SECONDS = 30.0
 
 
 @dataclass
@@ -17,8 +23,36 @@ class SessionContext:
     registration_id: str
     session_id: str
     driver_to_member_id: dict[str, str] = field(default_factory=dict)
+    _last_refresh_attempt: dict[str, float] = field(default_factory=dict)
 
-    def resolve_driver(self, lmu_driver_name: str) -> str | None:
+    def resolve_driver(
+        self,
+        lmu_driver_name: str,
+        api: TrackingClient | None = None,
+    ) -> str | None:
+        """Look up team member UUID for an LMU driver name.
+
+        On a cache miss with `api` provided, refetch the roster once (throttled
+        per-name to avoid hammering the API on a name that's genuinely unknown).
+        """
+        hit = self.driver_to_member_id.get(lmu_driver_name)
+        if hit is not None or api is None:
+            return hit
+
+        now = time.monotonic()
+        last = self._last_refresh_attempt.get(lmu_driver_name, 0.0)
+        if now - last < REFRESH_THROTTLE_SECONDS:
+            return None
+        self._last_refresh_attempt[lmu_driver_name] = now
+
+        try:
+            payload = api.get_session(self.registration_id)
+        except ApiError as e:
+            logger.warning("Roster refresh failed: %s", e)
+            return None
+
+        roster = payload.get("teamMembers") or []
+        self.driver_to_member_id = _build_driver_map(roster)
         return self.driver_to_member_id.get(lmu_driver_name)
 
 
