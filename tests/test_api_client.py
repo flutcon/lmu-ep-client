@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
@@ -248,3 +249,77 @@ def test_network_error_wrapped():
 
     assert excinfo.value.status == 0
     assert excinfo.value.code == "NETWORK"
+
+
+class _StatusFakeResponse(_FakeResponse):
+    def __init__(self, body: bytes, status: int = 200) -> None:
+        super().__init__(body)
+        self.status = status
+
+
+def test_debug_logs_request_and_response(caplog):
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="lmu_secret_xyz")
+
+    def fake_urlopen(req, timeout):
+        return _StatusFakeResponse(b'{"id":"e1"}', status=201)
+
+    with caplog.at_level(logging.DEBUG, logger="lmu_ep_client.api_client"):
+        with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+            c.post("/api/tracking/events", body={"type": "pitstop"})
+
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "-> POST https://lmu-ep.vercel.app/api/tracking/events" in text
+    assert '"type": "pitstop"' in text
+    assert "<- POST 201" in text
+    assert '"id":"e1"' in text
+
+
+def test_debug_logs_do_not_leak_bearer_token(caplog):
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="lmu_secret_xyz")
+
+    def fake_urlopen(req, timeout):
+        return _StatusFakeResponse(b'{}', status=200)
+
+    with caplog.at_level(logging.DEBUG, logger="lmu_ep_client.api_client"):
+        with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+            c.get("/api/tracking/registrations")
+
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "lmu_secret_xyz" not in text
+    assert "Bearer" not in text
+
+
+def test_debug_logs_http_error_body(caplog):
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    err_body = json.dumps({"error": "Bad token", "code": "UNAUTHORIZED"}).encode("utf-8")
+    http_err = HTTPError(
+        url="https://lmu-ep.vercel.app/x",
+        code=401,
+        msg="Unauthorized",
+        hdrs=None,
+        fp=io.BytesIO(err_body),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="lmu_ep_client.api_client"):
+        with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=http_err):
+            with pytest.raises(ApiError):
+                c.get("/x")
+
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "<- GET 401" in text
+    assert "UNAUTHORIZED" in text
+
+
+def test_debug_truncates_large_response(caplog):
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    big = b'"' + b"x" * 5000 + b'"'
+
+    def fake_urlopen(req, timeout):
+        return _StatusFakeResponse(big, status=200)
+
+    with caplog.at_level(logging.DEBUG, logger="lmu_ep_client.api_client"):
+        with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+            c.get("/x")
+
+    body_lines = [r.getMessage() for r in caplog.records if "body:" in r.getMessage()]
+    assert any("truncated" in line for line in body_lines)

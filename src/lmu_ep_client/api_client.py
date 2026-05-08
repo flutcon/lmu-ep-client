@@ -11,6 +11,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_API_HOST = "lmu-ep.vercel.app"
 DEFAULT_API_URL = f"https://{DEFAULT_API_HOST}"
 
+_LOG_BODY_CAP = 2000
+
+
+def _truncate(s: str) -> str:
+    if len(s) <= _LOG_BODY_CAP:
+        return s
+    return f"{s[:_LOG_BODY_CAP]}... (truncated, {len(s) - _LOG_BODY_CAP} more bytes)"
+
 
 class ApiError(Exception):
     def __init__(self, status: int, code: str, message: str) -> None:
@@ -58,14 +66,27 @@ class TrackingClient:
         if data is not None:
             req.add_header("Content-Type", "application/json")
 
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("-> %s %s", method, url)
+            if data is not None:
+                logger.debug("   body: %s", _truncate(data.decode("utf-8", errors="replace")))
+
         try:
             with urllib_request.urlopen(req, timeout=self.timeout) as resp:
                 raw = resp.read()
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("<- %s %d [%d bytes]", method, resp.status, len(raw))
+                    if raw:
+                        logger.debug("   body: %s", _truncate(raw.decode("utf-8", errors="replace")))
                 if not raw:
                     return None
                 return json.loads(raw.decode("utf-8"))
         except urllib_error.HTTPError as e:
             raw = e.read().decode("utf-8", errors="replace")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("<- %s %d [%d bytes]", method, e.code, len(raw))
+                if raw:
+                    logger.debug("   body: %s", _truncate(raw))
             try:
                 payload = json.loads(raw) if raw else {}
             except json.JSONDecodeError:
@@ -76,6 +97,7 @@ class TrackingClient:
                 message=payload.get("error", raw or e.reason or ""),
             ) from None
         except urllib_error.URLError as e:
+            logger.debug("<- %s NETWORK ERROR: %s", method, e.reason)
             raise ApiError(status=0, code="NETWORK", message=str(e.reason)) from None
 
     def get(self, path: str) -> Any:
