@@ -293,6 +293,7 @@ def run(
                 stint = detector.stints[-1]
                 pit = stint.pit_stop
                 pit_dict = pit.to_dict()
+                pit_dict["laps_driven"] = stint.end_lap - stint.start_lap
                 msg = f"Pit exit — standing time: {pit_dict['standing_time_seconds']}s"
                 msg += f" | +{pit.fuel_added_litres}L fuel"
                 msg += f" | +{pit.energy_added_percent}% energy"
