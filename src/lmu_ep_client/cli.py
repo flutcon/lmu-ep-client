@@ -12,6 +12,37 @@ def _decode(b) -> str:
     return b.decode().rstrip("\x00")
 
 
+def _print_session_info(info) -> None:
+    """Print the session/vehicle table. Kept separate from open/close so its
+    ctypes locals (scoring_info, v) fall out of scope before info.close() — the
+    mmap refuses to close while any ctypes views into it are still alive.
+    """
+    scoring_info = info.LMUData.scoring.scoringInfo
+    num_vehicles = scoring_info.mNumVehicles
+
+    if num_vehicles == 0:
+        print("No active session found.")
+        return
+
+    track = _decode(scoring_info.mTrackName)
+    print(f"Session: {track}  ({num_vehicles} cars)\n")
+    print(f"  {'#':<4} {'ID':<5} {'Driver':<24} {'Vehicle':<36} {'Class'}")
+    print(f"  {'-'*4} {'-'*5} {'-'*24} {'-'*36} {'-'*16}")
+
+    for i in range(num_vehicles):
+        v = info.LMUData.scoring.vehScoringInfo[i]
+        driver = _decode(v.mDriverName)
+        vehicle = _decode(v.mVehicleName)
+        cls = _decode(v.mVehicleClass)
+        place = v.mPlace
+        slot_id = v.mID
+        marker = " *" if v.mIsPlayer else ""
+        print(f"  {place:<4} {slot_id:<5} {driver:<24} {vehicle:<36} {cls}{marker}")
+
+    print("\n  * = your car (only visible when you are driving)")
+    print("  Use --driver <name>, --team <name>, or --slot <id> to track a specific car")
+
+
 def _list_teams() -> None:
     try:
         info = lmu_data.SimInfo()
@@ -20,30 +51,7 @@ def _list_teams() -> None:
         return
 
     try:
-        scoring_info = info.LMUData.scoring.scoringInfo
-        num_vehicles = scoring_info.mNumVehicles
-
-        if num_vehicles == 0:
-            print("No active session found.")
-            return
-
-        track = _decode(scoring_info.mTrackName)
-        print(f"Session: {track}  ({num_vehicles} cars)\n")
-        print(f"  {'#':<4} {'ID':<5} {'Driver':<24} {'Vehicle':<36} {'Class'}")
-        print(f"  {'-'*4} {'-'*5} {'-'*24} {'-'*36} {'-'*16}")
-
-        for i in range(num_vehicles):
-            v = info.LMUData.scoring.vehScoringInfo[i]
-            driver = _decode(v.mDriverName)
-            vehicle = _decode(v.mVehicleName)
-            cls = _decode(v.mVehicleClass)
-            place = v.mPlace
-            slot_id = v.mID
-            marker = " *" if v.mIsPlayer else ""
-            print(f"  {place:<4} {slot_id:<5} {driver:<24} {vehicle:<36} {cls}{marker}")
-
-        print("\n  * = your car (only visible when you are driving)")
-        print("  Use --driver <name>, --team <name>, or --slot <id> to track a specific car")
+        _print_session_info(info)
     finally:
         info.close()
 
