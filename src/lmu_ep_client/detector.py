@@ -114,7 +114,6 @@ class StintDetector:
         self.stints: list[Stint] = []
         self._current_stint_start: _StintStart | None = None
         self._prev_pit_state: int = PIT_NONE
-        self._prev_laps: int = 0
         self._pre_pit: _PrePitSnapshot | None = None
         self._pit_enter_elapsed: float = 0.0
         self._pit_stand_elapsed: float = 0.0
@@ -154,7 +153,6 @@ class StintDetector:
                     self.session.end_time = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
                 events.add("session_end")
                 self._session_active = False
-                self._prev_laps = 0
                 self._pre_pit = None
                 self._pit_enter_elapsed = 0.0
                 self._pit_stand_elapsed = 0.0
@@ -167,11 +165,6 @@ class StintDetector:
             # Pit state transitions
             pit_events = self._check_pit_transitions(tick)
             events.update(pit_events)
-
-            # Lap completion
-            if tick.total_laps > self._prev_laps and self._prev_laps > 0:
-                events.add("lap_completed")
-            self._prev_laps = tick.total_laps
 
         self._prev_pit_state = tick.pit_state
         return events

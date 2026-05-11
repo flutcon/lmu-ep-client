@@ -24,6 +24,22 @@ WAIT_RETRY_INTERVAL = 10.0
 FINISH_STATUS_NAMES = {1: "finished", 2: "dnf", 3: "dq"}
 
 
+class AmbiguousMatchError(Exception):
+    """Raised when --team matches more than one car. The user must disambiguate
+    with --slot since silently picking one would log the wrong stint data."""
+
+
+def _decode(b) -> str:
+    """Tolerantly decode a null-terminated LMU shared-memory string field.
+
+    Player-supplied driver/team names may contain bytes that aren't valid
+    UTF-8 (e.g. locale-encoded chars from a non-UTF-8 client). Replace rather
+    than raise — losing one glyph is better than killing the poll loop on a
+    bad nickname elsewhere in the field.
+    """
+    return b.decode("utf-8", errors="replace").rstrip("\x00")
+
+
 def _started_meta(tick: TickData) -> dict:
     return {
         "track": tick.track,
@@ -56,9 +72,19 @@ def _find_player_id(info: lmu_data.SimInfo, team_name: str | None, driver_name: 
         # Substring match against mVehicleName — the entry/team name is
         # embedded there (e.g. "BMW GT3 Custom Team 2025 #397") and stays
         # constant regardless of who is currently driving.
-        entry = next((v for v in vehicles if team_name.lower() in v.mVehicleName.decode().rstrip("\x00").lower()), None)
+        needle = team_name.lower()
+        matches = [v for v in vehicles if needle in _decode(v.mVehicleName).lower()]
+        if len(matches) > 1:
+            listing = "\n".join(
+                f"  slot {v.mID}: {_decode(v.mVehicleName)}" for v in matches
+            )
+            raise AmbiguousMatchError(
+                f"--team {team_name!r} matched {len(matches)} cars:\n{listing}\n"
+                "Use --slot <ID> to pick one."
+            )
+        entry = matches[0] if matches else None
     elif driver_name:
-        entry = next((v for v in vehicles if v.mDriverName.decode().rstrip("\x00") == driver_name), None)
+        entry = next((v for v in vehicles if _decode(v.mDriverName) == driver_name), None)
     else:
         entry = next((v for v in vehicles if v.mIsPlayer), None)
 
@@ -119,12 +145,12 @@ def _read_tick(info: lmu_data.SimInfo, player_id: int) -> TickData | None:
         return TickData(
             game_phase=scoring_info.mGamePhase,
             session_type=scoring_info.mSession,
-            track=scoring_info.mTrackName.decode().rstrip("\x00"),
+            track=_decode(scoring_info.mTrackName),
             elapsed=scoring_info.mCurrentET,
-            driver=veh_scoring.mDriverName.decode().rstrip("\x00"),
-            vehicle=veh_scoring.mVehicleName.decode().rstrip("\x00"),
-            vehicle_model=veh_telem.mVehicleModel.decode().rstrip("\x00"),
-            vehicle_class=veh_scoring.mVehicleClass.decode().rstrip("\x00"),
+            driver=_decode(veh_scoring.mDriverName),
+            vehicle=_decode(veh_scoring.mVehicleName),
+            vehicle_model=_decode(veh_telem.mVehicleModel),
+            vehicle_class=_decode(veh_scoring.mVehicleClass),
             pit_state=veh_scoring.mPitState,
             total_laps=veh_scoring.mTotalLaps,
             fuel=fuel,
@@ -134,7 +160,7 @@ def _read_tick(info: lmu_data.SimInfo, player_id: int) -> TickData | None:
             dent_severity=dent_severity,
             finish_status=veh_scoring.mFinishStatus,
             speed=speed,
-            team=veh_scoring.mPitGroup.decode().rstrip("\x00"),
+            team=_decode(veh_scoring.mPitGroup),
             control=control,
         )
     except Exception as e:
@@ -210,7 +236,11 @@ def run(
             # Latch the player's car slot ID once, then track by ID for the full
             # session — covers spectating between stints in team races.
             if player_id is None:
-                player_id = _find_player_id(info, team_name, driver_name, slot_id)
+                try:
+                    player_id = _find_player_id(info, team_name, driver_name, slot_id)
+                except AmbiguousMatchError as e:
+                    _log(str(e))
+                    return
                 if player_id is None:
                     if slot_id is not None:
                         _log(f"Waiting for slot ID {slot_id} to appear in session...")

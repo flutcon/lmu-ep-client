@@ -5,11 +5,8 @@ import logging
 from pathlib import Path
 
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
-from lmu_ep_client.poller import run
+from lmu_ep_client.poller import _decode, run
 from pyLMUSharedMemory import lmu_data
-
-def _decode(b) -> str:
-    return b.decode().rstrip("\x00")
 
 
 def _print_session_info(info) -> None:
