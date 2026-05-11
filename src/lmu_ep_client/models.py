@@ -9,6 +9,7 @@ class TireInfo:
     old_wear: float
     old_compound: str
     new_compound: str | None = None
+    new_wear: float | None = None  # post-pit wear (1.0=fresh, 0.0=worn)
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -18,6 +19,8 @@ class TireInfo:
         }
         if self.new_compound is not None:
             d["new_compound"] = self.new_compound
+        if self.new_wear is not None:
+            d["new_wear"] = self.new_wear
         return d
 
 
@@ -81,6 +84,8 @@ class PitStop:
     driver_change: bool
     new_driver: str | None
     tyres: dict[str, TireInfo]
+    post_fuel_litres: float = 0.0       # absolute litres at pit exit (next stint start)
+    post_energy_percent: float = 0.0    # absolute % at pit exit (next stint start)
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -92,6 +97,8 @@ class PitStop:
             "total_pit_time_seconds": round(self.pit_exit_elapsed - self.pit_enter_elapsed, 1),
             "fuel_added_litres": self.fuel_added_litres,
             "energy_added_percent": self.energy_added_percent,
+            "post_fuel_litres": self.post_fuel_litres,
+            "post_energy_percent": self.post_energy_percent,
             "repair_flag": self.repair_flag,
             "driver_change": self.driver_change,
         }
@@ -113,6 +120,11 @@ class Stint:
     energy: EnergyData
     tyre_wear: TyreWearData
     pit_stop: PitStop | None = None
+    # Set when the stint was driven by a remote teammate. LMU stops updating
+    # the local mWear telemetry slot, so per-wheel wear is unreadable on the
+    # spectating client — null it out. Fuel still works because the poller
+    # falls back to the networked mFuelFraction; energy is networked too.
+    remote_controlled: bool = False
 
     def to_dict(self) -> dict:
         total_laps = self.end_lap - self.start_lap
@@ -127,7 +139,7 @@ class Stint:
             "stint_duration_seconds": round(self.end_time_elapsed - self.start_time_elapsed, 1),
             "fuel": self.fuel.to_dict(total_laps=total_laps),
             "energy": self.energy.to_dict(total_laps=total_laps),
-            "tyre_wear": self.tyre_wear.to_dict(),
+            "tyre_wear": None if self.remote_controlled else self.tyre_wear.to_dict(),
             "pit_stop": self.pit_stop.to_dict() if self.pit_stop else None,
         }
 

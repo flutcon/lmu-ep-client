@@ -21,6 +21,7 @@ def _make_tick(
     finish_status: int = 0,
     speed: float = 0.0,
     team: str = "Team A",
+    control: int = 0,
 ) -> TickData:
     if wheels is None:
         wheels = [
@@ -48,6 +49,7 @@ def _make_tick(
         finish_status=finish_status,
         speed=speed,
         team=team,
+        control=control,
     )
 
 
@@ -117,16 +119,19 @@ def test_full_pit_cycle():
     # Enter pit
     events = det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0, virtual_energy=40.0))
     assert "pit_enter" in events
+    assert "pit_at_box" not in events
 
-    # Pit stopped
-    det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0, virtual_energy=40.0))
+    # Pit stopped — first stand transition
+    events = det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0, virtual_energy=40.0))
+    assert "pit_at_box" in events
+    assert "pit_departed" not in events
 
-    # Pit exiting
+    # Pit exiting — first state change at the box
     fresh_wheels = [
         {"wear": 1.0, "compound_index": 1, "compound_type": 0, "flat": False, "detached": False}
         for _ in range(4)
     ]
-    det.update(_make_tick(
+    events = det.update(_make_tick(
         elapsed=635.0,
         pit_state=4,
         total_laps=10,
@@ -134,6 +139,7 @@ def test_full_pit_cycle():
         virtual_energy=100.0,
         wheels=fresh_wheels,
     ))
+    assert "pit_departed" in events
 
     # Back on track — this is when the stint finalizes
     events = det.update(_make_tick(
@@ -145,6 +151,8 @@ def test_full_pit_cycle():
         wheels=fresh_wheels,
     ))
     assert "pit_exit" in events
+    # pit_departed already fired on the 3→4 transition; do not re-fire
+    assert "pit_departed" not in events
     assert len(det.stints) == 1
 
     stint = det.stints[0]
@@ -161,12 +169,16 @@ def test_full_pit_cycle():
     assert pit.fuel_added_litres == 60.0
     assert pit.energy_added_percent == 60.0
     assert pit.driver_change is False
+    # Post-pit absolute state — the starting state of the next stint
+    assert pit.post_fuel_litres == 110.0
+    assert pit.post_energy_percent == 100.0
 
     # All tires changed (Hard -> Soft, wear reset)
     for pos in ["FL", "FR", "RL", "RR"]:
         assert pit.tyres[pos].changed is True
         assert pit.tyres[pos].old_compound == "Hard"
         assert pit.tyres[pos].new_compound == "Soft"
+        assert pit.tyres[pos].new_wear == 1.0
 
 
 def test_pit_cycle_without_exiting_state():
@@ -176,12 +188,15 @@ def test_pit_cycle_without_exiting_state():
 
     # Enter pit
     det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0))
-    # Stopped
-    det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0))
-    # Jump straight to on track (no state 4)
+    # Stopped — pit_at_box should fire here
+    events = det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0))
+    assert "pit_at_box" in events
+    # Jump straight to on track (no state 4) — pit_departed must still fire,
+    # alongside pit_exit, so the four-phase sequence is complete.
     events = det.update(_make_tick(elapsed=635.0, pit_state=0, total_laps=10, fuel=110.0))
 
     assert "pit_exit" in events
+    assert "pit_departed" in events
     assert len(det.stints) == 1
     assert det.stints[0].pit_stop is not None
 
@@ -377,6 +392,50 @@ def test_session_starts_in_garage_pit_state_5():
     assert det.stints[0].fuel.start_litres == 110.0
 
 
+def test_remote_controlled_stint_marks_telemetry_unavailable():
+    """During a teammate's stint (mControl=2), tyre_wear and fuel are frozen
+    locally — the resulting Stint should be flagged so consumers don't trust
+    those values."""
+    det = _make_detector()
+
+    # Player starts the stint, then hands off — pit cycle with driver change.
+    det.update(_make_tick(game_phase=5, elapsed=0.0, driver="Driver A", control=0))
+    det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0, driver="Driver A", control=0))
+    det.update(_make_tick(elapsed=612.0, pit_state=3, total_laps=10, fuel=50.0, driver="Driver A", control=0))
+
+    # Pit exit — Driver B takes over remotely; from now on telemetry is stale.
+    det.update(_make_tick(elapsed=640.0, pit_state=0, total_laps=10, fuel=110.0, driver="Driver B", control=2))
+
+    # Driver B's stint, with telemetry frozen at hand-off values.
+    fresh_wheels = [
+        {"wear": 1.0, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False}
+        for _ in range(4)
+    ]
+    det.update(_make_tick(elapsed=1500.0, total_laps=20, fuel=110.0, virtual_energy=50.0, wheels=fresh_wheels, driver="Driver B", control=2))
+
+    # Session ends mid-stint for Driver B.
+    det.update(_make_tick(game_phase=8, elapsed=1600.0, total_laps=22, fuel=110.0, virtual_energy=40.0, wheels=fresh_wheels, driver="Driver B", control=2))
+
+    assert len(det.stints) == 2
+
+    local_stint = det.stints[0]
+    assert local_stint.remote_controlled is False
+    assert local_stint.to_dict()["tyre_wear"] is not None
+    assert local_stint.to_dict()["fuel"] is not None
+
+    remote_stint = det.stints[1]
+    assert remote_stint.remote_controlled is True
+    remote_dict = remote_stint.to_dict()
+    # No networked source for per-wheel wear → must be null.
+    assert remote_dict["tyre_wear"] is None
+    # Fuel and energy are both networked sources (mFuelFraction in scoring,
+    # mVirtualEnergy in telemetry), so they stay valid. The poller is
+    # responsible for picking the right fuel source per tick — at the detector
+    # layer we just trust tick.fuel.
+    assert remote_dict["fuel"] is not None
+    assert remote_dict["energy"]["used_percent"] == 60.0
+
+
 def test_drive_through_does_not_create_stint():
     """Drive-through penalty: car enters pit lane but never stops — no new stint."""
     det = _make_detector()
@@ -390,10 +449,14 @@ def test_drive_through_does_not_create_stint():
     # Enter pit lane (drive-through)
     events = det.update(_make_tick(elapsed=600.0, pit_state=2, total_laps=10, fuel=50.0))
     assert "pit_enter" in events
+    assert "pit_at_box" not in events
 
     # Exit pit lane without stopping (2 -> 0, no state 3 or 5)
     events = det.update(_make_tick(elapsed=633.0, pit_state=0, total_laps=10, fuel=49.8))
     assert "pit_exit" not in events
+    # Drive-throughs never reach a stand — must not surface pit_at_box or pit_departed
+    assert "pit_at_box" not in events
+    assert "pit_departed" not in events
     assert len(det.stints) == 0  # no stint finalized
 
     # Continue driving and end session

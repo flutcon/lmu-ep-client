@@ -53,37 +53,56 @@ def test_driver_stopped_payload():
     assert body["teamMemberId"] == "m3"
 
 
-def test_pitstop_with_swap_includes_both_ids():
+def _post_bodies(api: MagicMock) -> list[dict]:
+    bodies = []
+    for call in api.post.call_args_list:
+        args, kwargs = call
+        bodies.append(kwargs.get("body") or (args[1] if len(args) > 1 else None))
+    return bodies
+
+
+def test_pitstop_with_swap_emits_clean_pitstop_then_driver_started():
     api = MagicMock()
     pub = _make(api)
     pub.pitstop(prev_driver="Alex S.", new_driver="Jin K.", meta={"standing_time_seconds": 32.1})
 
-    _, body = _last_post(api)
-    assert body["type"] == "pitstop"
-    assert body["swapFromMemberId"] == "m1"
-    assert body["teamMemberId"] == "m3"
-    assert body["meta"] == {"standing_time_seconds": 32.1}
+    bodies = _post_bodies(api)
+    assert len(bodies) == 2
+
+    pit_body, swap_body = bodies
+    assert pit_body["type"] == "pitstop"
+    assert "swapFromMemberId" not in pit_body
+    assert "teamMemberId" not in pit_body
+    assert pit_body["meta"] == {"standing_time_seconds": 32.1}
+
+    assert swap_body["type"] == "driver_started"
+    assert swap_body["teamMemberId"] == "m3"
+    assert swap_body["swapFromMemberId"] == "m1"
 
 
-def test_pitstop_same_driver_no_swap():
+def test_pitstop_same_driver_emits_only_pitstop():
     api = MagicMock()
     pub = _make(api)
     pub.pitstop(prev_driver="Alex S.", new_driver="Alex S.", meta={"fuel_added_litres": 50})
 
-    _, body = _last_post(api)
+    bodies = _post_bodies(api)
+    assert len(bodies) == 1
+    body = bodies[0]
     assert body["type"] == "pitstop"
     assert "swapFromMemberId" not in body
     assert "teamMemberId" not in body
     assert body["meta"]["fuel_added_litres"] == 50
 
 
-def test_pitstop_swap_with_unknown_new_driver_drops_swap_fields():
+def test_pitstop_swap_with_unknown_new_driver_skips_swap_event():
     api = MagicMock()
     api.get_session.return_value = {"id": "s1", "teamMembers": []}
     pub = _make(api)
     pub.pitstop(prev_driver="Alex S.", new_driver="Ghost", meta={})
 
-    _, body = _last_post(api)
+    bodies = _post_bodies(api)
+    assert len(bodies) == 1
+    body = bodies[0]
     assert body["type"] == "pitstop"
     assert "swapFromMemberId" not in body
     assert "teamMemberId" not in body
@@ -116,3 +135,130 @@ def test_pitstop_path_uses_registration_id():
 
     path, _ = _last_post(api)
     assert path == "/api/tracking/registrations/r1/events"
+
+
+def test_pit_entered_uses_provided_occurred_at():
+    """pit_entered is deferred until pit_at_box so the poller backdates it
+    with the wall-clock captured at the actual pit-lane crossing."""
+    api = MagicMock()
+    pub = _make(api)
+    pub.pit_entered(occurred_at="2026-05-11T10:00:00Z")
+
+    path, body = _last_post(api)
+    assert path == "/api/tracking/registrations/r1/events"
+    assert body == {"type": "pit_entered", "occurredAt": "2026-05-11T10:00:00Z"}
+
+
+def test_pit_entered_defaults_occurred_at_to_now():
+    api = MagicMock()
+    pub = _make(api)
+    pub.pit_entered()
+
+    _, body = _last_post(api)
+    assert body["type"] == "pit_entered"
+    assert body["occurredAt"]  # server-now fallback
+
+
+def test_pit_phase_methods_post_correct_types():
+    api = MagicMock()
+    pub = _make(api)
+    pub.pit_at_box()
+    pub.pit_departed()
+    pub.pit_exited()
+
+    types = [b["type"] for b in _post_bodies(api)]
+    assert types == ["pit_at_box", "pit_departed", "pit_exited"]
+
+
+def test_pit_phase_methods_omit_team_member_id():
+    """Phase events have no driver association — the server rejects teamMemberId on them."""
+    api = MagicMock()
+    pub = _make(api)
+    pub.pit_entered()
+    pub.pit_at_box()
+    pub.pit_departed()
+    pub.pit_exited()
+
+    for body in _post_bodies(api):
+        assert "teamMemberId" not in body
+        assert "swapFromMemberId" not in body
+        assert "meta" not in body
+
+
+def test_now_iso_returns_zulu_timestamp():
+    from lmu_ep_client.tracking_publisher import TrackingPublisher
+
+    ts = TrackingPublisher.now_iso()
+    assert ts.endswith("Z")
+    # YYYY-MM-DDTHH:MM:SSZ — 20 chars
+    assert len(ts) == 20
+
+
+def test_driver_started_attaches_meta():
+    api = MagicMock()
+    pub = _make(api)
+    pub.driver_started("Alex S.", meta={"track": "Monza", "vehicle": "Porsche 963", "vehicle_class": "Hypercar"})
+
+    _, body = _last_post(api)
+    assert body["meta"] == {"track": "Monza", "vehicle": "Porsche 963", "vehicle_class": "Hypercar"}
+    assert body["teamMemberId"] == "m1"
+
+
+def test_driver_started_omits_meta_when_none():
+    api = MagicMock()
+    pub = _make(api)
+    pub.driver_started("Alex S.")
+
+    _, body = _last_post(api)
+    assert "meta" not in body
+
+
+def test_driver_stopped_attaches_finish_status_meta():
+    api = MagicMock()
+    pub = _make(api)
+    pub.driver_stopped("Alex S.", meta={"finish_status": "dnf"})
+
+    _, body = _last_post(api)
+    assert body["meta"] == {"finish_status": "dnf"}
+    assert body["teamMemberId"] == "m1"
+
+
+def test_pitstop_swap_attaches_started_meta_to_swap_event_only():
+    """started_meta tags the new driver's stint with track/vehicle context —
+    it belongs on the swap driver_started event, NOT on the pitstop body."""
+    api = MagicMock()
+    pub = _make(api)
+    pit_meta = {"fuel_added_litres": 50, "post_fuel_litres": 110.0}
+    started_meta = {"track": "Spa", "vehicle": "Porsche 963", "vehicle_class": "Hypercar"}
+    pub.pitstop(
+        prev_driver="Alex S.",
+        new_driver="Jin K.",
+        meta=pit_meta,
+        started_meta=started_meta,
+    )
+
+    bodies = _post_bodies(api)
+    assert len(bodies) == 2
+    pit_body, swap_body = bodies
+    assert pit_body["meta"] == pit_meta
+    # started_meta must not leak into the pitstop body
+    assert pit_body["meta"] != started_meta
+    assert swap_body["type"] == "driver_started"
+    assert swap_body["meta"] == started_meta
+    assert swap_body["swapFromMemberId"] == "m1"
+
+
+def test_pitstop_without_swap_ignores_started_meta():
+    api = MagicMock()
+    pub = _make(api)
+    pub.pitstop(
+        prev_driver="Alex S.",
+        new_driver="Alex S.",
+        meta={"fuel_added_litres": 30},
+        started_meta={"track": "Spa", "vehicle": "Porsche 963", "vehicle_class": "Hypercar"},
+    )
+
+    bodies = _post_bodies(api)
+    # No driver change -> no swap event, so started_meta is silently dropped.
+    assert len(bodies) == 1
+    assert bodies[0]["type"] == "pitstop"

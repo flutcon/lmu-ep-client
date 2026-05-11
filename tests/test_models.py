@@ -15,6 +15,7 @@ def test_tire_info_to_dict_changed():
         old_wear=0.72,
         old_compound="Hard",
         new_compound="Soft",
+        new_wear=1.0,
     )
     result = tire.to_dict()
     assert result == {
@@ -22,7 +23,22 @@ def test_tire_info_to_dict_changed():
         "old_wear": 0.72,
         "old_compound": "Hard",
         "new_compound": "Soft",
+        "new_wear": 1.0,
     }
+
+
+def test_tire_info_to_dict_unchanged_carries_new_wear():
+    """Even when tires aren't swapped, post-pit wear is captured — it's the
+    starting wear for the next stint."""
+    tire = TireInfo(
+        changed=False,
+        old_wear=0.5,
+        old_compound="Hard",
+        new_wear=0.5,
+    )
+    result = tire.to_dict()
+    assert result["new_wear"] == 0.5
+    assert "new_compound" not in result
 
 
 def test_tire_info_to_dict_not_changed():
@@ -91,9 +107,11 @@ def test_pit_stop_to_dict():
         driver_change=True,
         new_driver="TeammateName",
         tyres={
-            "FL": TireInfo(changed=True, old_wear=0.72, old_compound="Hard", new_compound="Hard"),
-            "FR": TireInfo(changed=False, old_wear=0.68, old_compound="Hard"),
+            "FL": TireInfo(changed=True, old_wear=0.72, old_compound="Hard", new_compound="Hard", new_wear=1.0),
+            "FR": TireInfo(changed=False, old_wear=0.68, old_compound="Hard", new_wear=0.68),
         },
+        post_fuel_litres=110.0,
+        post_energy_percent=100.0,
     )
     result = pit.to_dict()
     assert result["standing_time_seconds"] == round(3385.0 - 3372.0, 1)
@@ -101,7 +119,11 @@ def test_pit_stop_to_dict():
     assert result["driver_change"] is True
     assert result["new_driver"] == "TeammateName"
     assert result["tyres"]["FL"]["changed"] is True
+    assert result["tyres"]["FL"]["new_wear"] == 1.0
     assert result["tyres"]["FR"]["changed"] is False
+    assert result["tyres"]["FR"]["new_wear"] == 0.68
+    assert result["post_fuel_litres"] == 110.0
+    assert result["post_energy_percent"] == 100.0
 
 
 def test_pit_stop_no_driver_change():
@@ -177,6 +199,32 @@ def test_stint_to_dict_no_pit():
     result = stint.to_dict()
     assert result["total_laps"] == 16
     assert result["pit_stop"] is None
+
+
+def test_stint_remote_controlled_nulls_tyre_wear_only():
+    """Remote-controlled stints have no networked source for per-wheel wear,
+    so tyre_wear must be null. Fuel is recovered via mFuelFraction in the
+    poller and energy is networked, so both stay valid."""
+    stint = Stint(
+        stint_number=3,
+        driver="Teammate",
+        start_lap=29,
+        end_lap=58,
+        start_time_elapsed=3395.2,
+        end_time_elapsed=7000.0,
+        fuel=FuelData(start_litres=75.0, end_litres=20.0, capacity=120.0),
+        energy=EnergyData(start_percent=100.0, end_percent=20.0),
+        tyre_wear=TyreWearData(
+            start={"FL": 1.0, "FR": 1.0, "RL": 1.0, "RR": 1.0},
+            end={"FL": 1.0, "FR": 1.0, "RL": 1.0, "RR": 1.0},
+        ),
+        pit_stop=None,
+        remote_controlled=True,
+    )
+    result = stint.to_dict()
+    assert result["tyre_wear"] is None
+    assert result["fuel"]["litres_used"] == 55.0
+    assert result["energy"]["used_percent"] == 80.0
 
 
 def test_session_data_to_dict():

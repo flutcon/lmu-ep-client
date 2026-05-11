@@ -19,6 +19,23 @@ POLL_INTERVAL = 1.0
 FLUSH_INTERVAL = 30.0
 WAIT_RETRY_INTERVAL = 10.0
 
+# mFinishStatus values (vendor/pyLMUSharedMemory/lmu_data.py LMUFinishStatus enum):
+# 0=None, 1=Finished, 2=DNF, 3=DQ. 0 is omitted (session ended without a result).
+FINISH_STATUS_NAMES = {1: "finished", 2: "dnf", 3: "dq"}
+
+
+def _started_meta(tick: TickData) -> dict:
+    return {
+        "track": tick.track,
+        "vehicle": tick.vehicle_model or tick.vehicle,
+        "vehicle_class": tick.vehicle_class,
+    }
+
+
+def _stopped_meta(tick: TickData) -> dict:
+    finish = FINISH_STATUS_NAMES.get(tick.finish_status)
+    return {"finish_status": finish} if finish else {}
+
 
 def _find_player_id(info: lmu_data.SimInfo, team_name: str | None, driver_name: str | None, slot_id: int | None) -> int | None:
     """Return the slot ID of the player's car, or None if not yet found.
@@ -86,6 +103,19 @@ def _read_tick(info: lmu_data.SimInfo, player_id: int) -> TickData | None:
         v = veh_telem.mLocalVel
         speed = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
 
+        # mFuel (telemetry, litres) is precise but frozen for remote-controlled
+        # cars — LMU stops writing to that slot when a teammate drives. The
+        # networked fallback is mFuelFraction (scoring, uint8 0-255 = 0-100%);
+        # the in-game HUD uses it. Resolution is ~0.4% of capacity (~0.5L on a
+        # 120L tank) but it actually updates.
+        control = veh_scoring.mControl
+        fuel_capacity = veh_telem.mFuelCapacity
+        fuel_fraction = veh_scoring.mFuelFraction
+        if control == 2 and fuel_capacity > 0:
+            fuel = (fuel_fraction / 255.0) * fuel_capacity
+        else:
+            fuel = veh_telem.mFuel
+
         return TickData(
             game_phase=scoring_info.mGamePhase,
             session_type=scoring_info.mSession,
@@ -97,14 +127,15 @@ def _read_tick(info: lmu_data.SimInfo, player_id: int) -> TickData | None:
             vehicle_class=veh_scoring.mVehicleClass.decode().rstrip("\x00"),
             pit_state=veh_scoring.mPitState,
             total_laps=veh_scoring.mTotalLaps,
-            fuel=veh_telem.mFuel,
-            fuel_capacity=veh_telem.mFuelCapacity,
+            fuel=fuel,
+            fuel_capacity=fuel_capacity,
             virtual_energy=veh_telem.mVirtualEnergy * 100.0,
             wheels=wheels,
             dent_severity=dent_severity,
             finish_status=veh_scoring.mFinishStatus,
             speed=speed,
             team=veh_scoring.mPitGroup.decode().rstrip("\x00"),
+            control=control,
         )
     except Exception as e:
         logger.warning("Failed to read shared memory: %s", e, exc_info=True)
@@ -157,6 +188,10 @@ def run(
     last_tick: TickData | None = None
     file_path: Path | None = None
     _prev_finish_status: int = 0
+    # Wall-clock captured when the car crosses the pit-lane line. We defer the
+    # `pit_entered` API call until `pit_at_box` confirms a real stop (so drive-
+    # throughs never reach the server), then backdate occurredAt with this.
+    pit_entered_at: str | None = None
 
     try:
         while True:
@@ -204,10 +239,25 @@ def run(
                 else:
                     _log(f"Stint 1 started — Driver: {tick.driver} ({tick.team})")
                 if publisher:
-                    publisher.driver_started(tick.driver)
+                    publisher.driver_started(tick.driver, meta=_started_meta(tick))
 
             if "pit_enter" in events:
                 _log("Pit entry detected")
+                if publisher:
+                    pit_entered_at = publisher.now_iso()
+
+            if "pit_at_box" in events:
+                _log("Pit at box")
+                if publisher:
+                    if pit_entered_at:
+                        publisher.pit_entered(occurred_at=pit_entered_at)
+                        pit_entered_at = None
+                    publisher.pit_at_box()
+
+            if "pit_departed" in events:
+                _log("Pit service complete")
+                if publisher:
+                    publisher.pit_departed()
 
             if "pit_exit" in events:
                 stint = detector.stints[-1]
@@ -224,11 +274,14 @@ def run(
                 _log(f"Stint {next_stint_num} started — Driver: {tick.driver} ({tick.team})")
 
                 if publisher:
+                    publisher.pit_exited()
                     publisher.pitstop(
                         prev_driver=stint.driver,
                         new_driver=tick.driver,
                         meta=pit_dict,
+                        started_meta=_started_meta(tick),
                     )
+                pit_entered_at = None
 
                 # Flush on stint completion
                 if detector.session:
@@ -244,7 +297,7 @@ def run(
 
             if "session_end" in events:
                 if publisher and tick.driver:
-                    publisher.driver_stopped(tick.driver)
+                    publisher.driver_stopped(tick.driver, meta=_stopped_meta(tick))
                 if detector.session:
                     file_path = flush_session(detector.session, detector.stints, output_dir)
                     _log(f"Session ended. Saved: {file_path}")
@@ -254,6 +307,7 @@ def run(
                 last_flush = 0.0
                 file_path = None
                 _prev_finish_status = 0
+                pit_entered_at = None
 
             # Periodic flush
             now = time.monotonic()

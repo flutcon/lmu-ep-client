@@ -56,6 +56,9 @@ WHEEL_POSITIONS = ["FL", "FR", "RL", "RR"]
 TIRE_WEAR_CHANGE_THRESHOLD = 0.001
 MOVING_SPEED_THRESHOLD = 1.0  # m/s — above this the car is considered in motion
 
+# mControl values from LMUVehicleScoring (vendor/pyLMUSharedMemory/lmu_data.py:223)
+CONTROL_REMOTE = 2
+
 
 @dataclass
 class TickData:
@@ -77,6 +80,7 @@ class TickData:
     finish_status: int  # 0=none, 1=finished, 2=dnf, 3=dq
     speed: float        # m/s
     team: str
+    control: int  # 0=local, 1=AI, 2=remote, 3=replay
 
 
 @dataclass
@@ -88,6 +92,7 @@ class _PrePitSnapshot:
     driver: str
     wheels: list[dict]
     dent_severity: list[int]
+    control: int
 
 
 @dataclass
@@ -100,6 +105,7 @@ class _StintStart:
     fuel_capacity: float
     start_energy: float
     start_wear: dict[str, float]  # FL/FR/RL/RR -> wear at stint start (1.0=fresh)
+    start_control: int
 
 
 class StintDetector:
@@ -113,6 +119,7 @@ class StintDetector:
         self._pit_enter_elapsed: float = 0.0
         self._pit_stand_elapsed: float = 0.0
         self._pit_depart_elapsed: float = 0.0
+        self._pit_departed_emitted: bool = False
         self._session_active: bool = False
 
     def update(self, tick: TickData) -> set[str]:
@@ -152,6 +159,7 @@ class StintDetector:
                 self._pit_enter_elapsed = 0.0
                 self._pit_stand_elapsed = 0.0
                 self._pit_depart_elapsed = 0.0
+                self._pit_departed_emitted = False
                 self._current_stint_start = None
                 self._prev_pit_state = tick.pit_state
                 return events
@@ -178,6 +186,7 @@ class StintDetector:
             fuel_capacity=tick.fuel_capacity,
             start_energy=tick.virtual_energy,
             start_wear={pos: round(tick.wheels[i]["wear"], 4) for i, pos in enumerate(WHEEL_POSITIONS)},
+            start_control=tick.control,
         )
 
     def _check_pit_transitions(self, tick: TickData) -> set[str]:
@@ -199,22 +208,37 @@ class StintDetector:
                 driver=tick.driver,
                 wheels=[dict(w) for w in tick.wheels],
                 dent_severity=list(tick.dent_severity),
+                control=tick.control,
             )
             self._pit_enter_elapsed = tick.elapsed
             self._pit_stand_elapsed = 0.0
             self._pit_depart_elapsed = 0.0
+            self._pit_departed_emitted = False
             events.add("pit_enter")
 
         # Reached pit stand — record first time we see STOPPED(3), EXITING(4), or GARAGE(5)
         # after entering the pits. LMU uses different combinations of these at the box.
         # State 4 counts here because LMU sometimes goes 2→4→5→0 (skipping 3).
+        just_landed = False
         if not self._pit_stand_elapsed and self._pre_pit and curr in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE):
             self._pit_stand_elapsed = tick.elapsed
+            events.add("pit_at_box")
+            just_landed = True
 
         # Track pit box departure — update on every state change while at the box.
         # The last recorded value before leaving gives us when service ended.
         # e.g. in 2→4→5→0: records at 4→5, giving the moment service completed.
-        if self._pit_stand_elapsed and prev != curr and curr in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE):
+        # Emit pit_departed once, on the first such transition (and never on
+        # the tick we first landed — that's pit_at_box, not a departure).
+        if (
+            self._pit_stand_elapsed
+            and not just_landed
+            and prev != curr
+            and curr in (PIT_STOPPED, PIT_EXITING, PIT_GARAGE)
+        ):
+            if not self._pit_departed_emitted:
+                events.add("pit_departed")
+                self._pit_departed_emitted = True
             self._pit_depart_elapsed = tick.elapsed
 
         # Left pit zone: was in pit area (or garage), now back on track
@@ -241,6 +265,7 @@ class StintDetector:
                         old_wear=round(old_w["wear"], 4),
                         old_compound=COMPOUND_NAMES.get(old_w["compound_type"], "Unknown"),
                         new_compound=COMPOUND_NAMES.get(new_w["compound_type"], "Unknown") if changed else None,
+                        new_wear=round(new_w["wear"], 4),
                     )
 
                 # Detect repair
@@ -263,6 +288,8 @@ class StintDetector:
                     driver_change=driver_changed,
                     new_driver=tick.driver if driver_changed else None,
                     tyres=tyres,
+                    post_fuel_litres=round(tick.fuel, 2),
+                    post_energy_percent=round(tick.virtual_energy, 2),
                 )
 
                 # Finalize current stint
@@ -288,12 +315,18 @@ class StintDetector:
                         end={pos: round(pre.wheels[i]["wear"], 4) for i, pos in enumerate(WHEEL_POSITIONS)},
                     ),
                     pit_stop=pit_stop,
+                    remote_controlled=cs.start_control == CONTROL_REMOTE or pre.control == CONTROL_REMOTE,
                 )
                 self.stints.append(stint)
 
                 # Start new stint
                 self._start_stint(tick)
                 self._pre_pit = None
+                # If LMU went straight stand → on-track without an intermediate
+                # at-box transition (e.g. 2→3→0), no pit_departed has fired yet.
+                # Surface it now so the four-phase event sequence is complete.
+                if not self._pit_departed_emitted:
+                    events.add("pit_departed")
                 events.add("pit_exit")
             elif self._current_stint_start is None:
                 # First time leaving pits after session started in garage
@@ -327,6 +360,7 @@ class StintDetector:
                 start=cs.start_wear,
                 end={pos: round(tick.wheels[i]["wear"], 4) for i, pos in enumerate(WHEEL_POSITIONS)},
             ),
+            remote_controlled=cs.start_control == CONTROL_REMOTE or tick.control == CONTROL_REMOTE,
         )
         self.stints.append(stint)
         self._current_stint_start = None
