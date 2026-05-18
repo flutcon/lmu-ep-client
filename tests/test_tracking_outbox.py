@@ -87,3 +87,52 @@ def test_failed_send_uses_backoff_before_retry(tmp_path):
     now[0] += 2.0
     outbox.drain(api)
     assert api.post.call_count == 2
+
+
+def test_non_retryable_error_dead_letters_record_and_continues(tmp_path):
+    outbox = TrackingOutbox(tmp_path / "outbox.json")
+    first = outbox.enqueue("/api/tracking/registrations/r1/events", {"type": "pitstop"})
+    second = outbox.enqueue("/api/tracking/registrations/r1/events", {"type": "pit_exited"})
+    api = MagicMock()
+    api.post.side_effect = [
+        ApiError(status=400, code="VALIDATION", message="bad event"),
+        None,
+    ]
+
+    sent = outbox.drain(api)
+
+    assert sent == 1
+    assert api.post.call_count == 2
+    raw = json.loads((tmp_path / "outbox.json").read_text(encoding="utf-8"))
+    assert raw[0]["idempotency_key"] == first.idempotency_key
+    assert raw[0]["failed_at"] is not None
+    assert raw[0]["last_error"] == "[400 VALIDATION] bad event"
+    assert raw[1]["idempotency_key"] == second.idempotency_key
+    assert raw[1]["sent_at"] is not None
+    assert TrackingOutbox(tmp_path / "outbox.json").pending_count == 0
+
+
+def test_sent_record_compaction_keeps_active_outbox_small(tmp_path):
+    outbox = TrackingOutbox(tmp_path / "outbox.json", max_sent_records=2)
+    for index in range(4):
+        outbox.enqueue("/api/tracking/registrations/r1/events", {"type": f"event_{index}"})
+
+    outbox.drain(MagicMock())
+
+    raw = json.loads((tmp_path / "outbox.json").read_text(encoding="utf-8"))
+    assert len(raw) == 2
+    assert [record["body"]["type"] for record in raw] == ["event_2", "event_3"]
+
+
+def test_corrupt_outbox_is_preserved_before_starting_fresh(tmp_path):
+    path = tmp_path / "outbox.json"
+    path.write_text("{not json", encoding="utf-8")
+
+    outbox = TrackingOutbox(path)
+    outbox.enqueue("/api/tracking/registrations/r1/events", {"type": "pitstop"})
+
+    backups = list(tmp_path.glob("outbox.json.corrupt-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "{not json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw[0]["body"] == {"type": "pitstop"}
