@@ -133,3 +133,11 @@ class TrackingClient:
 
     def get_session(self, registration_id: str) -> dict:
         return self.get(f"/api/tracking/registrations/{registration_id}/session")
+
+    def patch_session_status(self, registration_id: str, status: str) -> dict:
+        if status not in {"active", "ended"}:
+            raise ValueError("status must be 'active' or 'ended'")
+        return self.patch(
+            f"/api/tracking/registrations/{registration_id}/session",
+            body={"status": status},
+        )

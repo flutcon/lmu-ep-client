@@ -338,12 +338,15 @@ class TrackingApiSink:
         if "session_end" in events:
             if tick.driver:
                 self._publisher.driver_stopped(tick.driver, meta=_stopped_meta(tick))
+            self._publisher.end_session()
             self._pit_entered_at = None
 
     def periodic(self, detector: StintDetector) -> None:
         self._publisher.flush_pending()
 
     def on_shutdown(self, detector: StintDetector, last_tick: TickData | None) -> None:
+        if detector.session:
+            self._publisher.end_session()
         self._publisher.flush_pending(force=True)
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,6 +14,7 @@ from lmu_ep_client.poller import (
     POLL_INTERVAL,
     SessionRunner,
     SharedMemoryReader,
+    TrackingApiSink,
     WAIT_RETRY_INTERVAL,
 )
 
@@ -253,3 +255,22 @@ def test_json_sink_flushes_session_end(tmp_path: Path):
 
     files = list(tmp_path.glob("*.json"))
     assert len(files) == 1
+
+
+def test_tracking_api_sink_ends_session_on_normal_session_end():
+    publisher = MagicMock()
+    sink = TrackingApiSink(publisher)
+
+    sink.on_events({"session_end"}, _tick(driver="Alex", finish_status=2), SimpleNamespace())
+
+    publisher.driver_stopped.assert_called_once_with("Alex", meta={"finish_status": "dnf"})
+    publisher.end_session.assert_called_once_with()
+
+
+def test_tracking_api_sink_ends_active_session_on_shutdown():
+    publisher = MagicMock()
+    sink = TrackingApiSink(publisher)
+
+    sink.on_shutdown(SimpleNamespace(session=object()), _tick(driver="Alex"))
+
+    publisher.end_session.assert_called_once_with()

@@ -65,9 +65,29 @@ class TrackingOutbox:
         return sum(1 for record in self._records if record.get("sent_at") is None)
 
     def enqueue(self, path: str, body: dict[str, Any]) -> OutboxItem:
+        return self._enqueue(path=path, body=body)
+
+    def enqueue_session_status(self, registration_id: str, status: str) -> OutboxItem:
+        if status not in {"active", "ended"}:
+            raise ValueError("status must be 'active' or 'ended'")
+        return self._enqueue(
+            path=f"/api/tracking/registrations/{registration_id}/session",
+            body={"status": status},
+            operation="patch_session_status",
+            registration_id=registration_id,
+        )
+
+    def _enqueue(
+        self,
+        path: str,
+        body: dict[str, Any],
+        operation: str = "post",
+        registration_id: str | None = None,
+    ) -> OutboxItem:
         record = {
             "path": path,
             "body": body,
+            "operation": operation,
             "idempotency_key": str(uuid.uuid4()),
             "created_at": _now_iso(),
             "sent_at": None,
@@ -75,6 +95,8 @@ class TrackingOutbox:
             "next_attempt_at": 0.0,
             "last_error": None,
         }
+        if registration_id is not None:
+            record["registration_id"] = registration_id
         self._records.append(record)
         self._save()
         return self._item(record)
@@ -88,11 +110,7 @@ class TrackingOutbox:
                 continue
 
             try:
-                api.post(
-                    record["path"],
-                    body=record["body"],
-                    idempotency_key=record["idempotency_key"],
-                )
+                self._send(api, record)
             except ApiError as e:
                 attempts = int(record.get("attempts") or 0) + 1
                 record["attempts"] = attempts
@@ -100,8 +118,8 @@ class TrackingOutbox:
                 record["next_attempt_at"] = self._now() + self._backoff(attempts)
                 self._save()
                 logger.warning(
-                    "Failed to post queued %s event; retry in %.0fs: %s",
-                    record.get("body", {}).get("type"),
+                    "Failed to send queued tracking %s; retry in %.0fs: %s",
+                    self._describe(record),
                     self._backoff(attempts),
                     e,
                 )
@@ -112,6 +130,24 @@ class TrackingOutbox:
             self._save()
             sent += 1
         return sent
+
+    @staticmethod
+    def _send(api: Any, record: dict[str, Any]) -> None:
+        if record.get("operation") == "patch_session_status":
+            api.patch_session_status(record["registration_id"], record["body"]["status"])
+            return
+
+        api.post(
+            record["path"],
+            body=record["body"],
+            idempotency_key=record["idempotency_key"],
+        )
+
+    @staticmethod
+    def _describe(record: dict[str, Any]) -> str:
+        if record.get("operation") == "patch_session_status":
+            return f"session status {record.get('body', {}).get('status')}"
+        return f"{record.get('body', {}).get('type')} event"
 
     def _load(self) -> list[dict[str, Any]]:
         if self._path is None or not self._path.exists():

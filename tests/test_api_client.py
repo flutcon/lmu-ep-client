@@ -251,6 +251,25 @@ def test_get_session_calls_correct_path():
     assert captured["method"] == "GET"
 
 
+def test_patch_session_status_calls_correct_path():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        captured["body"] = req.data
+        return _FakeResponse(b'{"status":"ended"}')
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        result = c.patch_session_status("reg-uuid", "ended")
+
+    assert result == {"status": "ended"}
+    assert captured["url"] == "https://lmu-ep.vercel.app/api/tracking/registrations/reg-uuid/session"
+    assert captured["method"] == "PATCH"
+    assert json.loads(captured["body"]) == {"status": "ended"}
+
+
 def test_network_error_wrapped():
     c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
 

@@ -152,6 +152,33 @@ def test_publisher_queues_failed_event_for_later_replay(tmp_path):
     assert kwargs["idempotency_key"]
 
 
+def test_end_session_patches_status_through_outbox(tmp_path):
+    api = MagicMock()
+    pub = _make(api, outbox=TrackingOutbox(tmp_path / "outbox.json"))
+
+    pub.end_session()
+
+    api.patch_session_status.assert_called_once_with("r1", "ended")
+    assert TrackingOutbox(tmp_path / "outbox.json").pending_count == 0
+
+
+def test_end_session_queues_failed_status_for_later_replay(tmp_path):
+    api = MagicMock()
+    api.patch_session_status.side_effect = ApiError(status=0, code="NETWORK", message="down")
+    pub = _make(api, outbox=TrackingOutbox(tmp_path / "outbox.json"))
+
+    pub.end_session()
+
+    restarted_outbox = TrackingOutbox(tmp_path / "outbox.json")
+    assert restarted_outbox.pending_count == 1
+    api.patch_session_status.side_effect = None
+    api.patch_session_status.reset_mock()
+
+    restarted_outbox.drain(api, force=True)
+
+    api.patch_session_status.assert_called_once_with("r1", "ended")
+
+
 def test_pitstop_path_uses_registration_id():
     api = MagicMock()
     pub = _make(api)

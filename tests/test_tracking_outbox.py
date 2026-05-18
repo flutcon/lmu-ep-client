@@ -56,6 +56,23 @@ def test_drain_replays_pending_event_after_restart(tmp_path):
     assert TrackingOutbox(tmp_path / "outbox.json").pending_count == 0
 
 
+def test_drain_replays_pending_session_status_after_restart(tmp_path):
+    first = TrackingOutbox(tmp_path / "outbox.json")
+    first.enqueue_session_status("r1", "ended")
+    api = MagicMock()
+    api.patch_session_status.side_effect = ApiError(status=0, code="NETWORK", message="down")
+
+    first.drain(api)
+
+    restarted = TrackingOutbox(tmp_path / "outbox.json")
+    api.patch_session_status.side_effect = None
+    api.patch_session_status.reset_mock()
+    restarted.drain(api, force=True)
+
+    api.patch_session_status.assert_called_once_with("r1", "ended")
+    assert TrackingOutbox(tmp_path / "outbox.json").pending_count == 0
+
+
 def test_failed_send_uses_backoff_before_retry(tmp_path):
     now = [1000.0]
     outbox = TrackingOutbox(tmp_path / "outbox.json", clock=lambda: now[0])

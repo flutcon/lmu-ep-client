@@ -49,6 +49,13 @@ class TrackingPublisher:
     def flush_pending(self, force: bool = False) -> int:
         return self._outbox.drain(self._api, force=force)
 
+    def set_session_status(self, status: str) -> None:
+        self._outbox.enqueue_session_status(self._ctx.registration_id, status)
+        self._outbox.drain(self._api, force=True)
+
+    def end_session(self) -> None:
+        self.set_session_status("ended")
+
     def _post_phase(self, event_type: str, occurred_at: str | None) -> None:
         self._post_event({"type": event_type, "occurredAt": occurred_at or _now_iso()})
 
