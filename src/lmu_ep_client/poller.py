@@ -3,13 +3,15 @@ from __future__ import annotations
 import logging
 import math
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from pyLMUSharedMemory import lmu_data
 
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.detector import StintDetector, TickData
-from lmu_ep_client.session_context import SessionContext, fetch_session_context
+from lmu_ep_client.session_context import fetch_session_context
 from lmu_ep_client.tracking_outbox import TrackingOutbox, default_outbox_path
 from lmu_ep_client.tracking_publisher import TrackingPublisher
 from lmu_ep_client.writer import flush_session
@@ -174,6 +176,329 @@ def _log(msg: str) -> None:
     print(f"[{timestamp}] {msg}")
 
 
+class SharedMemoryReader:
+    """Owns the LMU shared-memory connection and tick extraction."""
+
+    def __init__(
+        self,
+        sim_info_factory: Callable[[], lmu_data.SimInfo] = lmu_data.SimInfo,
+    ) -> None:
+        self._sim_info_factory = sim_info_factory
+        self.info: lmu_data.SimInfo | None = None
+
+    def connect(self) -> bool:
+        if self.info is not None:
+            return True
+        try:
+            self.info = self._sim_info_factory()
+        except Exception:
+            return False
+        return True
+
+    def read_tick(self, player_id: int) -> TickData | None:
+        if self.info is None:
+            return None
+        return _read_tick(self.info, player_id)
+
+    def close(self) -> None:
+        if self.info is None:
+            return
+        self.info.close()
+        self.info = None
+
+
+class PlayerSelector:
+    """Finds and latches the car slot the client should track."""
+
+    def __init__(
+        self,
+        team_name: str | None = None,
+        driver_name: str | None = None,
+        slot_id: int | None = None,
+    ) -> None:
+        self.team_name = team_name
+        self.driver_name = driver_name
+        self.slot_id = slot_id
+
+    def select(self, info: lmu_data.SimInfo) -> int | None:
+        return _find_player_id(info, self.team_name, self.driver_name, self.slot_id)
+
+    def waiting_message(self) -> str | None:
+        if self.slot_id is not None:
+            return f"Waiting for slot ID {self.slot_id} to appear in session..."
+        if self.team_name:
+            return f"Waiting for team '{self.team_name}' to appear in session..."
+        if self.driver_name:
+            return f"Waiting for driver '{self.driver_name}' to appear in session..."
+        return None
+
+
+def _pit_exit_details(detector: StintDetector, tick: TickData) -> tuple[Any, Any, dict[str, Any], str]:
+    stint = detector.stints[-1]
+    pit = stint.pit_stop
+    pit_dict = pit.to_dict()
+    pit_dict["laps_driven"] = stint.end_lap - stint.start_lap
+    msg = f"Pit exit - standing time: {pit_dict['standing_time_seconds']}s"
+    msg += f" | +{pit.fuel_added_litres}L fuel"
+    msg += f" | +{pit.energy_added_percent}% energy"
+    if pit.driver_change:
+        msg += f" | Driver change: {pit.new_driver}"
+    return stint, pit, pit_dict, msg
+
+
+class JsonSink:
+    """Persists detected session/stint data to local JSON files."""
+
+    def __init__(
+        self,
+        output_dir: Path | None = None,
+        flush_session_func: Callable[..., Path] = flush_session,
+        monotonic: Callable[[], float] = time.monotonic,
+        flush_interval: float = FLUSH_INTERVAL,
+        log: Callable[[str], None] | None = None,
+    ) -> None:
+        self.output_dir = output_dir
+        self._flush_session = flush_session_func
+        self._monotonic = monotonic
+        self._flush_interval = flush_interval
+        self._log = log or (lambda msg: None)
+        self.last_flush = 0.0
+        self.file_path: Path | None = None
+        self._prev_finish_status = 0
+
+    def _flush(self, detector: StintDetector) -> Path | None:
+        if detector.session is None:
+            return None
+        self.file_path = self._flush_session(detector.session, detector.stints, self.output_dir)
+        self.last_flush = self._monotonic()
+        return self.file_path
+
+    def on_events(self, events: set[str], tick: TickData, detector: StintDetector) -> None:
+        if "pit_exit" in events:
+            self._flush(detector)
+
+        if self._prev_finish_status == 0 and tick.finish_status != 0 and detector.session:
+            path = self._flush(detector)
+            self._log(f"Race finished - data saved: {path}")
+        self._prev_finish_status = tick.finish_status
+
+        if "session_end" in events:
+            path = self._flush(detector)
+            self._log(f"Session ended. Saved: {path}")
+            self.last_flush = 0.0
+            self.file_path = None
+            self._prev_finish_status = 0
+
+    def periodic(self, detector: StintDetector) -> None:
+        now = self._monotonic()
+        if detector.session and (now - self.last_flush) >= self._flush_interval:
+            self.file_path = self._flush_session(detector.session, detector.stints, self.output_dir)
+            self.last_flush = now
+
+    def on_shutdown(self, detector: StintDetector, last_tick: TickData | None) -> None:
+        if detector.session:
+            path = self._flush(detector)
+            self._log(f"Final save: {path}")
+
+
+class TrackingApiSink:
+    """Publishes detector events to the remote tracking API."""
+
+    def __init__(self, publisher: TrackingPublisher) -> None:
+        self._publisher = publisher
+        self._pit_entered_at: str | None = None
+
+    def on_events(self, events: set[str], tick: TickData, detector: StintDetector) -> None:
+        if "session_start" in events:
+            self._publisher.driver_started(tick.driver, meta=_started_meta(tick))
+
+        if "pit_enter" in events:
+            self._pit_entered_at = self._publisher.now_iso()
+
+        if "pit_at_box" in events:
+            if self._pit_entered_at:
+                self._publisher.pit_entered(occurred_at=self._pit_entered_at)
+                self._pit_entered_at = None
+            self._publisher.pit_at_box()
+
+        if "pit_departed" in events:
+            self._publisher.pit_departed()
+
+        if "pit_exit" in events:
+            stint, _pit, pit_dict, _msg = _pit_exit_details(detector, tick)
+            self._publisher.pit_exited()
+            self._publisher.pitstop(
+                prev_driver=stint.driver,
+                new_driver=tick.driver,
+                meta=pit_dict,
+                started_meta=_started_meta(tick),
+            )
+            self._pit_entered_at = None
+
+        if "session_end" in events:
+            if tick.driver:
+                self._publisher.driver_stopped(tick.driver, meta=_stopped_meta(tick))
+            self._pit_entered_at = None
+
+    def periodic(self, detector: StintDetector) -> None:
+        self._publisher.flush_pending()
+
+    def on_shutdown(self, detector: StintDetector, last_tick: TickData | None) -> None:
+        self._publisher.flush_pending(force=True)
+
+
+class SessionRunner:
+    """Coordinates one poll loop using injected readers, sinks, and timing."""
+
+    def __init__(
+        self,
+        reader: SharedMemoryReader,
+        selector: PlayerSelector,
+        sinks: list[Any],
+        detector: StintDetector | None = None,
+        poll_interval: float = POLL_INTERVAL,
+        wait_retry_interval: float = WAIT_RETRY_INTERVAL,
+        sleep: Callable[[float], None] = time.sleep,
+        log: Callable[[str], None] = _log,
+    ) -> None:
+        self.reader = reader
+        self.selector = selector
+        self.sinks = sinks
+        self.detector = detector or StintDetector()
+        self.poll_interval = poll_interval
+        self.wait_retry_interval = wait_retry_interval
+        self.sleep = sleep
+        self.log = log
+        self.player_id: int | None = None
+        self.last_tick: TickData | None = None
+
+    def step(self) -> float | None:
+        if not self.reader.connect():
+            self.log("LMU not detected. Retrying...")
+            return self.wait_retry_interval
+
+        if self.player_id is None:
+            try:
+                self.player_id = self.selector.select(getattr(self.reader, "info", None))
+            except AmbiguousMatchError as e:
+                self.log(str(e))
+                return None
+
+            if self.player_id is None:
+                message = self.selector.waiting_message()
+                if message:
+                    self.log(message)
+                return self.poll_interval
+
+            self.log(f"Player car identified (slot ID {self.player_id})")
+
+        tick = self.reader.read_tick(self.player_id)
+        if tick is None:
+            return self.poll_interval
+
+        self.last_tick = tick
+        events = self.detector.update(tick)
+        self._log_events(events, tick)
+
+        for sink in self.sinks:
+            sink.on_events(events, tick, self.detector)
+        for sink in self.sinks:
+            sink.periodic(self.detector)
+
+        if "session_end" in events:
+            self.detector = StintDetector()
+            self.player_id = None
+
+        return self.poll_interval
+
+    def run(self, stop_event=None) -> None:
+        try:
+            while True:
+                if stop_event and stop_event.is_set():
+                    break
+
+                delay = self.step()
+                if delay is None:
+                    break
+                self.sleep(delay)
+
+        except KeyboardInterrupt:
+            pass
+        except Exception:
+            logger.exception("Unexpected error in polling loop")
+        finally:
+            self.log("Shutting down...")
+            if self.detector.session:
+                self.detector.finalize_on_shutdown(self.last_tick)
+            for sink in self.sinks:
+                sink.on_shutdown(self.detector, self.last_tick)
+            self.reader.close()
+
+    def _log_events(self, events: set[str], tick: TickData) -> None:
+        if "session_start" in events and self.detector.session:
+            self.log(f"Session detected: {self.detector.session.track} - {self.detector.session.session_type}")
+            self.log(f"Vehicle: {tick.vehicle_model or tick.vehicle} ({tick.vehicle_class})")
+            if "mid_stint_join" in events:
+                self.log(
+                    f"Joined mid-stint - Driver: {tick.driver} ({tick.team}) "
+                    "(partial stint data from this point)"
+                )
+            else:
+                self.log(f"Stint 1 started - Driver: {tick.driver} ({tick.team})")
+
+        if "pit_enter" in events:
+            self.log("Pit entry detected")
+
+        if "pit_at_box" in events:
+            self.log("Pit at box")
+
+        if "pit_departed" in events:
+            self.log("Pit service complete")
+
+        if "pit_exit" in events:
+            _stint, _pit, _pit_dict, msg = _pit_exit_details(self.detector, tick)
+            self.log(msg)
+            next_stint_num = len(self.detector.stints) + 1
+            self.log(f"Stint {next_stint_num} started - Driver: {tick.driver} ({tick.team})")
+
+
+def _create_tracking_sink(
+    output_dir: Path | None,
+    api_url: str | None,
+    api_key: str | None,
+    registration_id: str | None,
+    log: Callable[[str], None],
+) -> TrackingApiSink | None:
+    if not api_key:
+        return None
+
+    api = TrackingClient(api_url=api_url or DEFAULT_API_URL, api_key=api_key)
+    log(f"Tracking API: {api.base_url}")
+    if not registration_id:
+        return None
+
+    try:
+        session_ctx = fetch_session_context(api, registration_id)
+    except ApiError as e:
+        log(f"Failed to initialize tracking session: {e}")
+        return None
+
+    outbox = TrackingOutbox(default_outbox_path(output_dir))
+    publisher = TrackingPublisher(api, session_ctx, outbox=outbox)
+    roster_size = len(session_ctx.driver_to_member_id)
+    log(
+        f"Tracking session ready (registration={registration_id}, "
+        f"session={session_ctx.session_id}, roster={roster_size} drivers)"
+    )
+    replayed = publisher.flush_pending(force=True)
+    if replayed:
+        log(f"Replayed {replayed} queued tracking event(s)")
+    if roster_size:
+        names = ", ".join(sorted(session_ctx.driver_to_member_id))
+        log(f"Recognized drivers: {names}")
+    return TrackingApiSink(publisher)
+
+
 def run(
     output_dir: Path | None = None,
     stop_event=None,
@@ -183,189 +508,28 @@ def run(
     api_url: str | None = None,
     api_key: str | None = None,
     registration_id: str | None = None,
+    reader: SharedMemoryReader | None = None,
+    selector: PlayerSelector | None = None,
+    sinks: list[Any] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+    log: Callable[[str], None] = _log,
 ) -> None:
-    api: TrackingClient | None = None
-    session_ctx: SessionContext | None = None
-    publisher: TrackingPublisher | None = None
-    if api_key:
-        api = TrackingClient(api_url=api_url or DEFAULT_API_URL, api_key=api_key)
-        _log(f"Tracking API: {api.base_url}")
-        if registration_id:
-            try:
-                session_ctx = fetch_session_context(api, registration_id)
-            except ApiError as e:
-                _log(f"Failed to initialize tracking session: {e}")
-                return
-            outbox = TrackingOutbox(default_outbox_path(output_dir))
-            publisher = TrackingPublisher(api, session_ctx, outbox=outbox)
-            roster_size = len(session_ctx.driver_to_member_id)
-            _log(
-                f"Tracking session ready (registration={registration_id}, "
-                f"session={session_ctx.session_id}, roster={roster_size} drivers)"
-            )
-            replayed = publisher.flush_pending(force=True)
-            if replayed:
-                _log(f"Replayed {replayed} queued tracking event(s)")
-            if roster_size:
-                names = ", ".join(sorted(session_ctx.driver_to_member_id))
-                _log(f"Recognized drivers: {names}")
+    if sinks is None:
+        sinks = [JsonSink(output_dir=output_dir, monotonic=monotonic, log=log)]
+        tracking_sink = _create_tracking_sink(output_dir, api_url, api_key, registration_id, log)
+        if api_key and registration_id and tracking_sink is None:
+            return
+        if tracking_sink is not None:
+            sinks.append(tracking_sink)
 
-    _log("Waiting for LMU session...")
+    log("Waiting for LMU session...")
 
-    info: lmu_data.SimInfo | None = None
-    player_id: int | None = None
-    detector = StintDetector()
-    last_flush = 0.0
-    last_tick: TickData | None = None
-    file_path: Path | None = None
-    _prev_finish_status: int = 0
-    # Wall-clock captured when the car crosses the pit-lane line. We defer the
-    # `pit_entered` API call until `pit_at_box` confirms a real stop (so drive-
-    # throughs never reach the server), then backdate occurredAt with this.
-    pit_entered_at: str | None = None
-
-    try:
-        while True:
-            if stop_event and stop_event.is_set():
-                break
-
-            # Connect to shared memory
-            if info is None:
-                try:
-                    info = lmu_data.SimInfo()
-                except Exception:
-                    _log("LMU not detected. Retrying...")
-                    time.sleep(WAIT_RETRY_INTERVAL)
-                    continue
-
-            # Latch the player's car slot ID once, then track by ID for the full
-            # session — covers spectating between stints in team races.
-            if player_id is None:
-                try:
-                    player_id = _find_player_id(info, team_name, driver_name, slot_id)
-                except AmbiguousMatchError as e:
-                    _log(str(e))
-                    return
-                if player_id is None:
-                    if slot_id is not None:
-                        _log(f"Waiting for slot ID {slot_id} to appear in session...")
-                    elif team_name:
-                        _log(f"Waiting for team '{team_name}' to appear in session...")
-                    elif driver_name:
-                        _log(f"Waiting for driver '{driver_name}' to appear in session...")
-                    time.sleep(POLL_INTERVAL)
-                    continue
-                _log(f"Player car identified (slot ID {player_id})")
-
-            tick = _read_tick(info, player_id)
-            if tick is None:
-                time.sleep(POLL_INTERVAL)
-                continue
-
-            last_tick = tick
-
-            events = detector.update(tick)
-
-            if "session_start" in events:
-                _log(f"Session detected: {detector.session.track} — {detector.session.session_type}")
-                _log(f"Vehicle: {tick.vehicle_model or tick.vehicle} ({tick.vehicle_class})")
-                if "mid_stint_join" in events:
-                    _log(f"Joined mid-stint — Driver: {tick.driver} ({tick.team}) (partial stint data from this point)")
-                else:
-                    _log(f"Stint 1 started — Driver: {tick.driver} ({tick.team})")
-                if publisher:
-                    publisher.driver_started(tick.driver, meta=_started_meta(tick))
-
-            if "pit_enter" in events:
-                _log("Pit entry detected")
-                if publisher:
-                    pit_entered_at = publisher.now_iso()
-
-            if "pit_at_box" in events:
-                _log("Pit at box")
-                if publisher:
-                    if pit_entered_at:
-                        publisher.pit_entered(occurred_at=pit_entered_at)
-                        pit_entered_at = None
-                    publisher.pit_at_box()
-
-            if "pit_departed" in events:
-                _log("Pit service complete")
-                if publisher:
-                    publisher.pit_departed()
-
-            if "pit_exit" in events:
-                stint = detector.stints[-1]
-                pit = stint.pit_stop
-                pit_dict = pit.to_dict()
-                pit_dict["laps_driven"] = stint.end_lap - stint.start_lap
-                msg = f"Pit exit — standing time: {pit_dict['standing_time_seconds']}s"
-                msg += f" | +{pit.fuel_added_litres}L fuel"
-                msg += f" | +{pit.energy_added_percent}% energy"
-                if pit.driver_change:
-                    msg += f" | Driver change: {pit.new_driver}"
-                _log(msg)
-
-                next_stint_num = len(detector.stints) + 1
-                _log(f"Stint {next_stint_num} started — Driver: {tick.driver} ({tick.team})")
-
-                if publisher:
-                    publisher.pit_exited()
-                    publisher.pitstop(
-                        prev_driver=stint.driver,
-                        new_driver=tick.driver,
-                        meta=pit_dict,
-                        started_meta=_started_meta(tick),
-                    )
-                pit_entered_at = None
-
-                # Flush on stint completion
-                if detector.session:
-                    file_path = flush_session(detector.session, detector.stints, output_dir)
-                    last_flush = time.monotonic()
-
-            # Flush immediately when the player's race is done (finish/DNF/DQ)
-            if _prev_finish_status == 0 and tick.finish_status != 0 and detector.session:
-                file_path = flush_session(detector.session, detector.stints, output_dir)
-                last_flush = time.monotonic()
-                _log(f"Race finished — data saved: {file_path}")
-            _prev_finish_status = tick.finish_status
-
-            if "session_end" in events:
-                if publisher and tick.driver:
-                    publisher.driver_stopped(tick.driver, meta=_stopped_meta(tick))
-                if detector.session:
-                    file_path = flush_session(detector.session, detector.stints, output_dir)
-                    _log(f"Session ended. Saved: {file_path}")
-                # Reset for next session
-                detector = StintDetector()
-                player_id = None
-                last_flush = 0.0
-                file_path = None
-                _prev_finish_status = 0
-                pit_entered_at = None
-
-            # Periodic flush
-            now = time.monotonic()
-            if publisher:
-                publisher.flush_pending()
-            if detector.session and (now - last_flush) >= FLUSH_INTERVAL:
-                file_path = flush_session(detector.session, detector.stints, output_dir)
-                last_flush = now
-
-            time.sleep(POLL_INTERVAL)
-
-    except KeyboardInterrupt:
-        pass
-    except Exception:
-        logger.exception("Unexpected error in polling loop")
-    finally:
-        _log("Shutting down...")
-        if detector.session:
-            detector.finalize_on_shutdown(last_tick)
-            file_path = flush_session(detector.session, detector.stints, output_dir)
-            _log(f"Final save: {file_path}")
-        if publisher:
-            publisher.flush_pending(force=True)
-        if info:
-            info.close()
+    runner = SessionRunner(
+        reader=reader or SharedMemoryReader(),
+        selector=selector or PlayerSelector(team_name=team_name, driver_name=driver_name, slot_id=slot_id),
+        sinks=sinks,
+        sleep=sleep,
+        log=log,
+    )
+    runner.run(stop_event=stop_event)
