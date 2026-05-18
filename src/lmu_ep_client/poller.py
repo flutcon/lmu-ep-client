@@ -10,6 +10,7 @@ from pyLMUSharedMemory import lmu_data
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.detector import StintDetector, TickData
 from lmu_ep_client.session_context import SessionContext, fetch_session_context
+from lmu_ep_client.tracking_outbox import TrackingOutbox, default_outbox_path
 from lmu_ep_client.tracking_publisher import TrackingPublisher
 from lmu_ep_client.writer import flush_session
 
@@ -195,12 +196,16 @@ def run(
             except ApiError as e:
                 _log(f"Failed to initialize tracking session: {e}")
                 return
-            publisher = TrackingPublisher(api, session_ctx)
+            outbox = TrackingOutbox(default_outbox_path(output_dir))
+            publisher = TrackingPublisher(api, session_ctx, outbox=outbox)
             roster_size = len(session_ctx.driver_to_member_id)
             _log(
                 f"Tracking session ready (registration={registration_id}, "
                 f"session={session_ctx.session_id}, roster={roster_size} drivers)"
             )
+            replayed = publisher.flush_pending(force=True)
+            if replayed:
+                _log(f"Replayed {replayed} queued tracking event(s)")
             if roster_size:
                 names = ", ".join(sorted(session_ctx.driver_to_member_id))
                 _log(f"Recognized drivers: {names}")
@@ -342,6 +347,8 @@ def run(
 
             # Periodic flush
             now = time.monotonic()
+            if publisher:
+                publisher.flush_pending()
             if detector.session and (now - last_flush) >= FLUSH_INTERVAL:
                 file_path = flush_session(detector.session, detector.stints, output_dir)
                 last_flush = now
@@ -358,5 +365,7 @@ def run(
             detector.finalize_on_shutdown(last_tick)
             file_path = flush_session(detector.session, detector.stints, output_dir)
             _log(f"Final save: {file_path}")
+        if publisher:
+            publisher.flush_pending(force=True)
         if info:
             info.close()

@@ -57,12 +57,20 @@ class TrackingClient:
     def _build_url(self, path: str) -> str:
         return f"{self.base_url}/{path.lstrip('/')}"
 
-    def _request(self, method: str, path: str, body: dict | None = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
         url = self._build_url(path)
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib_request.Request(url, data=data, method=method)
         req.add_header("Authorization", f"Bearer {self._api_key}")
         req.add_header("Accept", "application/json")
+        if idempotency_key:
+            req.add_header("Idempotency-Key", idempotency_key)
         if data is not None:
             req.add_header("Content-Type", "application/json")
 
@@ -103,8 +111,13 @@ class TrackingClient:
     def get(self, path: str) -> Any:
         return self._request("GET", path)
 
-    def post(self, path: str, body: dict | None = None) -> Any:
-        return self._request("POST", path, body=body)
+    def post(
+        self,
+        path: str,
+        body: dict | None = None,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        return self._request("POST", path, body=body, idempotency_key=idempotency_key)
 
     def patch(self, path: str, body: dict | None = None) -> Any:
         return self._request("PATCH", path, body=body)

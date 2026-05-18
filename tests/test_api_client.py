@@ -118,6 +118,20 @@ def test_post_sends_json_body_with_content_type():
     assert json.loads(captured["body"]) == {"type": "pitstop"}
 
 
+def test_post_can_send_idempotency_key_header():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["idempotency_key"] = req.get_header("Idempotency-key")
+        return _FakeResponse(b'{"id":"e1"}')
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        c.post("/api/tracking/events", body={"type": "pitstop"}, idempotency_key="idem-1")
+
+    assert captured["idempotency_key"] == "idem-1"
+
+
 def test_delete_returns_none_for_empty_body():
     c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
 

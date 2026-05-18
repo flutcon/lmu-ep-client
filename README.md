@@ -17,6 +17,7 @@ Download or build `lmu-ep-client.exe` (see below). Start it before or during a s
 ```
 lmu-ep-client.exe
 lmu-ep-client.exe --output-dir C:\path\to\sessions
+lmu-ep-client.exe --api-key lmu_... --registration-id <uuid>
 lmu-ep-client.exe --debug
 ```
 
@@ -28,6 +29,7 @@ Stop with `Ctrl+C`. The tool writes a final flush on shutdown.
 pip install -e ".[dev]"
 python -m lmu_ep_client
 python -m lmu_ep_client --output-dir ./sessions --debug
+python -m lmu_ep_client --api-key lmu_... --list-registrations
 ```
 
 ### Options
@@ -35,6 +37,14 @@ python -m lmu_ep_client --output-dir ./sessions --debug
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output-dir DIR` | `./sessions/` | Directory for JSON output files |
+| `--team NAME` | auto-detect player car | Track the car whose vehicle/entry name contains `NAME` |
+| `--driver NAME` | auto-detect player car | Track the car currently driven by `NAME` |
+| `--slot ID` | auto-detect player car | Track a specific car slot ID from `--list-teams` |
+| `--list-teams` | off | List active LMU cars and slot IDs, then exit |
+| `--api-key KEY` | off | Bearer API key for live tracking events |
+| `--registration-id UUID` | off | Event registration to publish tracking events against |
+| `--list-registrations` | off | List API registrations for the provided `--api-key`, then exit |
+| `--api-url URL` | production API | Override the tracking API base URL |
 | `--debug` | off | Enable debug logging to stderr |
 
 ## Output
@@ -46,6 +56,20 @@ sessions/2026-04-02_14-31-12_LeMans24h_Race_1.json
 ```
 
 The file is flushed on every pit stop completion and every 30 seconds while a stint is active. A final flush runs on `Ctrl+C`.
+
+## Tracking API
+
+When `--api-key` and `--registration-id` are provided, the client mirrors live tracking events to the API while continuing to write the local JSON session file. API publishing uses a durable local outbox at:
+
+```
+sessions/tracking-outbox.json
+```
+
+If `--output-dir` is set, the outbox is stored in that directory instead.
+
+Every API event is written to the outbox before the network request is attempted. Each queued event has a stable idempotency key that is reused on retries, so a restart or network drop does not create a new logical event. After the API accepts an event, the outbox marks it with `sent_at`; unsent events are replayed on startup and retried during polling with exponential backoff.
+
+This means local logging remains the source of truth, and pit/driver events are not discarded just because the network is temporarily unavailable.
 
 ### File structure
 

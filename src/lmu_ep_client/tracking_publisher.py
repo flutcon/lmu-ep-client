@@ -4,8 +4,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from lmu_ep_client.api_client import ApiError, TrackingClient
+from lmu_ep_client.api_client import TrackingClient
 from lmu_ep_client.session_context import SessionContext
+from lmu_ep_client.tracking_outbox import TrackingOutbox, default_outbox_path
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +18,20 @@ def _now_iso() -> str:
 class TrackingPublisher:
     """Maps detector events to tracking API calls.
 
-    All public methods log + swallow ApiError so a transient network failure
-    can't take down the polling loop. Local JSON output is the source of
-    truth; the API is best-effort mirroring.
+    Public event methods persist to the local outbox before sending. The
+    outbox logs + swallows ApiError so a transient network failure can't take
+    down the polling loop, and pending events can be replayed later.
     """
 
-    def __init__(self, api: TrackingClient, ctx: SessionContext) -> None:
+    def __init__(
+        self,
+        api: TrackingClient,
+        ctx: SessionContext,
+        outbox: TrackingOutbox | None = None,
+    ) -> None:
         self._api = api
         self._ctx = ctx
+        self._outbox = outbox or TrackingOutbox(default_outbox_path())
 
     @property
     def registration_id(self) -> str:
@@ -36,10 +43,11 @@ class TrackingPublisher:
 
     def _post_event(self, body: dict[str, Any]) -> None:
         path = f"/api/tracking/registrations/{self._ctx.registration_id}/events"
-        try:
-            self._api.post(path, body=body)
-        except ApiError as e:
-            logger.warning("Failed to post %s event: %s", body.get("type"), e)
+        self._outbox.enqueue(path, body)
+        self._outbox.drain(self._api, force=True)
+
+    def flush_pending(self, force: bool = False) -> int:
+        return self._outbox.drain(self._api, force=force)
 
     def _post_phase(self, event_type: str, occurred_at: str | None) -> None:
         self._post_event({"type": event_type, "occurredAt": occurred_at or _now_iso()})

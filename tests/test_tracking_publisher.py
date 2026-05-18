@@ -2,16 +2,21 @@ from unittest.mock import MagicMock
 
 from lmu_ep_client.api_client import ApiError
 from lmu_ep_client.session_context import SessionContext
+from lmu_ep_client.tracking_outbox import TrackingOutbox
 from lmu_ep_client.tracking_publisher import TrackingPublisher
 
 
-def _make(api: MagicMock, roster: dict[str, str] | None = None) -> TrackingPublisher:
+def _make(
+    api: MagicMock,
+    roster: dict[str, str] | None = None,
+    outbox: TrackingOutbox | None = None,
+) -> TrackingPublisher:
     ctx = SessionContext(
         registration_id="r1",
         session_id="s1",
         driver_to_member_id=roster or {"Alex S.": "m1", "Jin K.": "m3"},
     )
-    return TrackingPublisher(api, ctx)
+    return TrackingPublisher(api, ctx, outbox=outbox or TrackingOutbox.in_memory())
 
 
 def _last_post(api: MagicMock) -> tuple[str, dict]:
@@ -126,6 +131,25 @@ def test_publisher_swallows_api_errors():
     pub.driver_started("Alex S.")
     pub.driver_stopped("Alex S.")
     pub.pitstop("Alex S.", "Jin K.", {})
+
+
+def test_publisher_queues_failed_event_for_later_replay(tmp_path):
+    api = MagicMock()
+    api.post.side_effect = ApiError(status=0, code="NETWORK", message="down")
+    pub = _make(api, outbox=TrackingOutbox(tmp_path / "outbox.json"))
+
+    pub.driver_started("Alex S.")
+
+    restarted_outbox = TrackingOutbox(tmp_path / "outbox.json")
+    assert restarted_outbox.pending_count == 1
+    api.post.side_effect = None
+    api.post.reset_mock()
+
+    restarted_outbox.drain(api, force=True)
+
+    _, kwargs = api.post.call_args
+    assert kwargs["body"]["type"] == "driver_started"
+    assert kwargs["idempotency_key"]
 
 
 def test_pitstop_path_uses_registration_id():
