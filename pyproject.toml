@@ -7,9 +7,6 @@ name = "lmu-ep-client"
 version = "0.1.0"
 description = "LMU Endurance Protocol Client — stint activity logger"
 requires-python = ">=3.10"
-dependencies = [
-    "pyLMUSharedMemory",
-]
 
 [project.scripts]
 lmu-ep-client = "lmu_ep_client.cli:main"
@@ -21,4 +18,9 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "vendor"]
+include = ["lmu_ep_client*", "pyLMUSharedMemory*"]
+exclude = ["pyLMUSharedMemory.tests*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "vendor"]
