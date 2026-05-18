@@ -17,6 +17,7 @@ Download or build `lmu-ep-client.exe` (see below). Start it before or during a s
 ```
 lmu-ep-client.exe
 lmu-ep-client.exe --output-dir C:\path\to\sessions
+lmu-ep-client.exe --registration-id <uuid>
 lmu-ep-client.exe --api-key lmu_... --registration-id <uuid>
 lmu-ep-client.exe --debug
 ```
@@ -29,7 +30,7 @@ Stop with `Ctrl+C`. The tool writes a final flush on shutdown.
 pip install -e ".[dev]"
 python -m lmu_ep_client
 python -m lmu_ep_client --output-dir ./sessions --debug
-python -m lmu_ep_client --api-key lmu_... --list-registrations
+python -m lmu_ep_client --list-registrations
 ```
 
 ### Options
@@ -41,9 +42,10 @@ python -m lmu_ep_client --api-key lmu_... --list-registrations
 | `--driver NAME` | auto-detect player car | Track the car currently driven by `NAME` |
 | `--slot ID` | auto-detect player car | Track a specific car slot ID from `--list-teams` |
 | `--list-teams` | off | List active LMU cars and slot IDs, then exit |
-| `--api-key KEY` | off | Bearer API key for live tracking events |
+| `--api-key KEY` | off | Bearer API key for live tracking events; overrides `LMU_EP_API_KEY` and config |
+| `--config PATH` | user config path | TOML config file with `api_key` or `[tracking].api_key` |
 | `--registration-id UUID` | off | Event registration to publish tracking events against |
-| `--list-registrations` | off | List API registrations for the provided `--api-key`, then exit |
+| `--list-registrations` | off | List API registrations for the configured API key, then exit |
 | `--api-url URL` | production API | Override the tracking API base URL |
 | `--debug` | off | Enable debug logging to stderr |
 
@@ -59,7 +61,20 @@ The file is flushed on every pit stop completion and every 30 seconds while a st
 
 ## Tracking API
 
-When `--api-key` and `--registration-id` are provided, the client mirrors live tracking events to the API while continuing to write the local JSON session file. API publishing uses a durable local outbox at:
+When an API key and `--registration-id` are provided, the client mirrors live tracking events to the API while continuing to write the local JSON session file. API keys are resolved in this order:
+
+1. `--api-key KEY`
+2. `LMU_EP_API_KEY`
+3. Config file
+
+The default config file is `%APPDATA%\lmu-ep-client\config.toml` on Windows and `$XDG_CONFIG_HOME/lmu-ep-client/config.toml` or `~/.config/lmu-ep-client/config.toml` elsewhere. Use `--config PATH` to point at another TOML file:
+
+```toml
+[tracking]
+api_key = "lmu_..."
+```
+
+API publishing uses a durable local outbox at:
 
 ```
 sessions/tracking-outbox.json

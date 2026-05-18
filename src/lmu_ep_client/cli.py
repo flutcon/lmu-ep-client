@@ -2,11 +2,64 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import tomllib
 from pathlib import Path
 
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.poller import _decode, run
 from pyLMUSharedMemory import lmu_data
+
+ENV_API_KEY = "LMU_EP_API_KEY"
+CONFIG_FILENAME = "config.toml"
+
+
+def _default_config_path() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return base / "lmu-ep-client" / CONFIG_FILENAME
+
+
+def _config_api_key(config_path: Path) -> str | None:
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise ValueError(f"Could not read config file {config_path}: {e}") from e
+
+    try:
+        config = tomllib.loads(raw)
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f"Invalid config file {config_path}: {e}") from e
+
+    value = config.get("api_key")
+    tracking = config.get("tracking")
+    if value is None and isinstance(tracking, dict):
+        value = tracking.get("api_key")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Config file {config_path} has a non-string api_key")
+
+    value = value.strip()
+    return value or None
+
+
+def _resolve_api_key(cli_api_key: str | None, config_path: Path | None = None) -> str | None:
+    if cli_api_key is not None:
+        api_key = cli_api_key.strip()
+        if not api_key:
+            raise ValueError("--api-key cannot be empty")
+        return api_key
+
+    env_api_key = os.environ.get(ENV_API_KEY, "").strip()
+    if env_api_key:
+        return env_api_key
+
+    return _config_api_key(config_path or _default_config_path())
 
 
 def _print_session_info(info) -> None:
@@ -130,7 +183,14 @@ def main() -> None:
         metavar="KEY",
         type=str,
         default=None,
-        help="Bearer API key for the tracking API. If omitted, only local JSON files are written.",
+        help=f"Bearer API key for the tracking API. Overrides {ENV_API_KEY} and config.",
+    )
+    parser.add_argument(
+        "--config",
+        metavar="PATH",
+        type=Path,
+        default=None,
+        help=f"TOML config file with api_key or [tracking].api_key (default: {_default_config_path()})",
     )
     parser.add_argument(
         "--registration-id",
@@ -160,16 +220,21 @@ def main() -> None:
         _list_teams()
         return
 
+    try:
+        api_key = _resolve_api_key(args.api_key, args.config)
+    except ValueError as e:
+        parser.error(str(e))
+
     if args.list_registrations:
-        if not args.api_key:
-            parser.error("--list-registrations requires --api-key")
-        _list_registrations(TrackingClient(api_url=args.api_url, api_key=args.api_key))
+        if not api_key:
+            parser.error(f"--list-registrations requires an API key (--api-key, {ENV_API_KEY}, or config)")
+        _list_registrations(TrackingClient(api_url=args.api_url, api_key=api_key))
         return
 
-    if args.api_key and not args.registration_id:
+    if args.api_key is not None and not args.registration_id:
         parser.error("--api-key requires --registration-id (use --list-registrations to find one)")
-    if args.registration_id and not args.api_key:
-        parser.error("--registration-id requires --api-key")
+    if args.registration_id and not api_key:
+        parser.error(f"--registration-id requires an API key (--api-key, {ENV_API_KEY}, or config)")
 
     run(
         output_dir=args.output_dir,
@@ -177,7 +242,7 @@ def main() -> None:
         driver_name=args.driver,
         slot_id=args.slot,
         api_url=args.api_url,
-        api_key=args.api_key,
+        api_key=api_key if args.registration_id else None,
         registration_id=args.registration_id,
     )
 
