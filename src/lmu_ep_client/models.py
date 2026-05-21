@@ -80,7 +80,7 @@ class PitStop:
     pit_exit_elapsed: float
     fuel_added_litres: float
     energy_added_percent: float
-    repair_flag: bool
+    repair_flag: bool | None
     driver_change: bool
     new_driver: str | None
     tyres: dict[str, TireInfo]
@@ -99,9 +99,10 @@ class PitStop:
             "energy_added_percent": self.energy_added_percent,
             "post_fuel_litres": self.post_fuel_litres,
             "post_energy_percent": self.post_energy_percent,
-            "repair_flag": self.repair_flag,
             "driver_change": self.driver_change,
         }
+        if self.repair_flag is not None:
+            d["repair_flag"] = self.repair_flag
         if self.new_driver is not None:
             d["new_driver"] = self.new_driver
         d["tyres"] = {pos: tire.to_dict() for pos, tire in self.tyres.items()}

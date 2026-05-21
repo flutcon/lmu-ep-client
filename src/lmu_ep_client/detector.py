@@ -244,28 +244,32 @@ class StintDetector:
                 self._pre_pit = None
             elif self._pre_pit and self._current_stint_start:
                 pre = self._pre_pit
+                local_pit_telemetry = pre.control != CONTROL_REMOTE and tick.control != CONTROL_REMOTE
 
                 # Build tire info
                 tyres: dict[str, TireInfo] = {}
-                for i, pos in enumerate(WHEEL_POSITIONS):
-                    old_w = pre.wheels[i]
-                    new_w = tick.wheels[i]
-                    compound_changed = old_w["compound_index"] != new_w["compound_index"]
-                    wear_reset = new_w["wear"] > old_w["wear"] + TIRE_WEAR_CHANGE_THRESHOLD
-                    changed = compound_changed or wear_reset
-                    tyres[pos] = TireInfo(
-                        changed=changed,
-                        old_wear=round(old_w["wear"], 4),
-                        old_compound=COMPOUND_NAMES.get(old_w["compound_type"], "Unknown"),
-                        new_compound=COMPOUND_NAMES.get(new_w["compound_type"], "Unknown") if changed else None,
-                        new_wear=round(new_w["wear"], 4),
-                    )
+                if local_pit_telemetry:
+                    for i, pos in enumerate(WHEEL_POSITIONS):
+                        old_w = pre.wheels[i]
+                        new_w = tick.wheels[i]
+                        compound_changed = old_w["compound_index"] != new_w["compound_index"]
+                        wear_reset = new_w["wear"] > old_w["wear"] + TIRE_WEAR_CHANGE_THRESHOLD
+                        changed = compound_changed or wear_reset
+                        tyres[pos] = TireInfo(
+                            changed=changed,
+                            old_wear=round(old_w["wear"], 4),
+                            old_compound=COMPOUND_NAMES.get(old_w["compound_type"], "Unknown"),
+                            new_compound=COMPOUND_NAMES.get(new_w["compound_type"], "Unknown") if changed else None,
+                            new_wear=round(new_w["wear"], 4),
+                        )
 
                 # Detect repair
-                repair = any(
-                    tick.dent_severity[j] < pre.dent_severity[j]
-                    for j in range(len(pre.dent_severity))
-                )
+                repair = None
+                if local_pit_telemetry:
+                    repair = any(
+                        tick.dent_severity[j] < pre.dent_severity[j]
+                        for j in range(len(pre.dent_severity))
+                    )
 
                 # Detect driver change
                 driver_changed = tick.driver != pre.driver

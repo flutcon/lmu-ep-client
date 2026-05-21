@@ -56,20 +56,36 @@ class TrackingPublisher:
     def end_session(self) -> None:
         self.set_session_status("ended")
 
-    def _post_phase(self, event_type: str, occurred_at: str | None) -> None:
-        self._post_event({"type": event_type, "occurredAt": occurred_at or _now_iso()})
+    def _post_phase(
+        self,
+        event_type: str,
+        occurred_at: str | None,
+        meta: dict[str, Any] | None = None,
+    ) -> None:
+        body: dict[str, Any] = {"type": event_type, "occurredAt": occurred_at or _now_iso()}
+        if meta:
+            body["meta"] = meta
+        self._post_event(body)
 
-    def pit_entered(self, occurred_at: str | None = None) -> None:
-        self._post_phase("pit_entered", occurred_at)
+    def pit_entered(
+        self, occurred_at: str | None = None, meta: dict[str, Any] | None = None
+    ) -> None:
+        self._post_phase("pit_entered", occurred_at, meta)
 
-    def pit_at_box(self, occurred_at: str | None = None) -> None:
-        self._post_phase("pit_at_box", occurred_at)
+    def pit_at_box(
+        self, occurred_at: str | None = None, meta: dict[str, Any] | None = None
+    ) -> None:
+        self._post_phase("pit_at_box", occurred_at, meta)
 
-    def pit_departed(self, occurred_at: str | None = None) -> None:
-        self._post_phase("pit_departed", occurred_at)
+    def pit_departed(
+        self, occurred_at: str | None = None, meta: dict[str, Any] | None = None
+    ) -> None:
+        self._post_phase("pit_departed", occurred_at, meta)
 
-    def pit_exited(self, occurred_at: str | None = None) -> None:
-        self._post_phase("pit_exited", occurred_at)
+    def pit_exited(
+        self, occurred_at: str | None = None, meta: dict[str, Any] | None = None
+    ) -> None:
+        self._post_phase("pit_exited", occurred_at, meta)
 
     def _resolve(self, lmu_driver_name: str | None) -> str | None:
         if not lmu_driver_name:

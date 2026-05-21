@@ -220,6 +220,65 @@ def test_driver_change_detection():
     assert pit.new_driver == "Driver B"
 
 
+def test_driver_swap_to_remote_omits_unreliable_pitstop_tyre_and_repair_values():
+    det = _make_detector()
+    worn_wheels = [
+        {"wear": 0.52, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False}
+        for _ in range(4)
+    ]
+    stale_wheels = [
+        {"wear": 0.52, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False}
+        for _ in range(4)
+    ]
+
+    det.update(_make_tick(game_phase=5, elapsed=0.0, driver="Driver A", control=0))
+    det.update(
+        _make_tick(
+            elapsed=600.0,
+            pit_state=2,
+            total_laps=10,
+            fuel=50.0,
+            driver="Driver A",
+            wheels=worn_wheels,
+            dent_severity=[0, 2, 0, 0, 0, 0, 0, 0],
+            control=0,
+        )
+    )
+    det.update(
+        _make_tick(
+            elapsed=612.0,
+            pit_state=3,
+            total_laps=10,
+            fuel=50.0,
+            driver="Driver A",
+            wheels=worn_wheels,
+            dent_severity=[0, 2, 0, 0, 0, 0, 0, 0],
+            control=0,
+        )
+    )
+
+    det.update(
+        _make_tick(
+            elapsed=640.0,
+            pit_state=0,
+            total_laps=10,
+            fuel=110.0,
+            driver="Driver B",
+            wheels=stale_wheels,
+            dent_severity=[0, 2, 0, 0, 0, 0, 0, 0],
+            control=2,
+        )
+    )
+
+    pit = det.stints[0].pit_stop
+    assert pit is not None
+    pit_dict = pit.to_dict()
+    assert pit_dict["driver_change"] is True
+    assert pit_dict["fuel_added_litres"] == 60.0
+    assert pit_dict["tyres"] == {}
+    assert "repair_flag" not in pit_dict
+
+
 def test_repair_detection():
     det = _make_detector()
     det.update(_make_tick(game_phase=5, elapsed=0.0))

@@ -10,7 +10,7 @@ from typing import Any
 from pyLMUSharedMemory import lmu_data
 
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
-from lmu_ep_client.detector import StintDetector, TickData
+from lmu_ep_client.detector import CONTROL_REMOTE, WHEEL_POSITIONS, StintDetector, TickData
 from lmu_ep_client.session_context import fetch_session_context
 from lmu_ep_client.tracking_outbox import TrackingOutbox, default_outbox_path
 from lmu_ep_client.tracking_publisher import TrackingPublisher
@@ -54,6 +54,19 @@ def _started_meta(tick: TickData) -> dict:
 def _stopped_meta(tick: TickData) -> dict:
     finish = FINISH_STATUS_NAMES.get(tick.finish_status)
     return {"finish_status": finish} if finish else {}
+
+
+def _live_pit_snapshot_meta(tick: TickData) -> dict[str, Any] | None:
+    if tick.control == CONTROL_REMOTE:
+        return None
+    return {
+        "fuel_litres": round(tick.fuel, 2),
+        "energy_percent": round(tick.virtual_energy, 2),
+        "tyre_wear": {
+            pos: round(tick.wheels[i]["wear"], 4)
+            for i, pos in enumerate(WHEEL_POSITIONS)
+        },
+    }
 
 
 def _find_player_id(info: lmu_data.SimInfo, team_name: str | None, driver_name: str | None, slot_id: int | None) -> int | None:
@@ -319,10 +332,10 @@ class TrackingApiSink:
             if self._pit_entered_at:
                 self._publisher.pit_entered(occurred_at=self._pit_entered_at)
                 self._pit_entered_at = None
-            self._publisher.pit_at_box()
+            self._publisher.pit_at_box(meta=_live_pit_snapshot_meta(tick))
 
         if "pit_departed" in events:
-            self._publisher.pit_departed()
+            self._publisher.pit_departed(meta=_live_pit_snapshot_meta(tick))
 
         if "pit_exit" in events:
             stint, _pit, pit_dict, _msg = _pit_exit_details(detector, tick)

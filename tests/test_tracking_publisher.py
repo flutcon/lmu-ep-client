@@ -236,6 +236,25 @@ def test_pit_phase_methods_omit_team_member_id():
         assert "meta" not in body
 
 
+def test_pit_phase_methods_attach_meta_when_provided():
+    api = MagicMock()
+    pub = _make(api)
+    meta = {
+        "fuel_litres": 72.34,
+        "energy_percent": 54.32,
+        "tyre_wear": {"FL": 0.8123, "FR": 0.7988, "RL": 0.8457, "RR": 0.8235},
+    }
+
+    pub.pit_at_box(meta=meta)
+    pub.pit_departed(meta=meta)
+
+    box_body, departed_body = _post_bodies(api)
+    assert box_body["type"] == "pit_at_box"
+    assert box_body["meta"] == meta
+    assert departed_body["type"] == "pit_departed"
+    assert departed_body["meta"] == meta
+
+
 def test_now_iso_returns_zulu_timestamp():
     from lmu_ep_client.tracking_publisher import TrackingPublisher
 

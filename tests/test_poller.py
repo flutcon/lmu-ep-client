@@ -274,3 +274,45 @@ def test_tracking_api_sink_ends_active_session_on_shutdown():
     sink.on_shutdown(SimpleNamespace(session=object()), _tick(driver="Alex"))
 
     publisher.end_session.assert_called_once_with()
+
+
+def test_tracking_api_sink_attaches_local_snapshot_to_box_and_departure_events():
+    publisher = MagicMock()
+    sink = TrackingApiSink(publisher)
+    tick = _tick(
+        fuel=72.345,
+        virtual_energy=54.321,
+        wheels=[
+            {"wear": 0.81234, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+            {"wear": 0.79876, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+            {"wear": 0.84567, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+            {"wear": 0.82345, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+        ],
+        control=0,
+    )
+
+    sink.on_events({"pit_at_box", "pit_departed"}, tick, SimpleNamespace())
+
+    expected_meta = {
+        "fuel_litres": 72.34,
+        "energy_percent": 54.32,
+        "tyre_wear": {
+            "FL": 0.8123,
+            "FR": 0.7988,
+            "RL": 0.8457,
+            "RR": 0.8235,
+        },
+    }
+    publisher.pit_at_box.assert_called_once_with(meta=expected_meta)
+    publisher.pit_departed.assert_called_once_with(meta=expected_meta)
+
+
+def test_tracking_api_sink_omits_snapshot_when_remote_driver_controls_car():
+    publisher = MagicMock()
+    sink = TrackingApiSink(publisher)
+    tick = _tick(control=2)
+
+    sink.on_events({"pit_at_box", "pit_departed"}, tick, SimpleNamespace())
+
+    publisher.pit_at_box.assert_called_once_with(meta=None)
+    publisher.pit_departed.assert_called_once_with(meta=None)
