@@ -125,10 +125,12 @@ lmu-ep-client/
 | total_pit_time_seconds | float | pit_exit - pit_enter |
 | fuel_added_litres | float | post-pit fuel - pre-pit fuel |
 | energy_added_percent | float | post-pit energy - pre-pit energy |
-| repair_flag | bool | true if repair was requested/detected |
+| post_fuel_litres | float | absolute litres at pit exit / next stint start |
+| post_energy_percent | float | absolute energy percent at pit exit / next stint start |
+| repair_flag | bool, optional | true if repair was requested/detected; omitted when post-service local telemetry is not trustworthy |
 | driver_change | bool | true if driver name changed across pit stop |
 | new_driver | string or null | new driver name if driver_change is true |
-| tyres | object | keyed by FL, FR, RL, RR |
+| tyres | object | keyed by FL, FR, RL, RR when local telemetry is trustworthy; empty object otherwise |
 
 ### TireInfo (per wheel)
 
@@ -138,6 +140,7 @@ lmu-ep-client/
 | old_wear | float | wear value pre-pit (0.0 = fully worn, 1.0 = fresh) |
 | old_compound | string | compound name pre-pit via `mCompoundType` |
 | new_compound | string | compound name post-pit (only if changed) |
+| new_wear | float | wear value post-pit / next stint start |
 
 ## Detection Logic
 
@@ -192,9 +195,42 @@ Compare pre-pit and post-pit tire data per wheel using `mWheels[i]`. A tire is c
 
 `mCompoundIndex` is the primary signal as it distinguishes compound variants within the same type category (e.g. two different Softs). The wear-reset fallback catches same-compound fresh-set swaps.
 
+LMU only updates per-wheel tyre wear reliably for the local/current driver. If either the pre-pit snapshot or post-service snapshot is remote-controlled (`mControl == 2`), tyre change details are not derived for the rich `pitstop` summary and `tyres` is serialized as `{}`. Remote-controlled stints serialize `tyre_wear` as `null`.
+
 ### Repair Detection
 
 Compare `mDentSeverity` values (8 positions) from pre-pit snapshot vs. post-pit snapshot. If any value decreased, `repair_flag: true`.
+
+Repair detection also depends on comparing local telemetry before and after service. If either side of the pit stop is remote-controlled, `repair_flag` is omitted from the serialized `pitstop`.
+
+### Tracking API Pit Events
+
+When API publishing is enabled, the client emits these pit events:
+
+| Event | Moment |
+|-------|--------|
+| `pit_entered` | Car crosses into pit lane |
+| `pit_at_box` | First tick at the pit box (`PIT_STOPPED`, `PIT_EXITING`, or `PIT_GARAGE`) |
+| `pit_departed` | Service is complete and the car leaves the box |
+| `pit_exited` | Car crosses back onto the track |
+| `pitstop` | Rich pit summary emitted at pit exit |
+
+`pit_at_box` and `pit_departed` carry a live snapshot in `meta` only when the client is the current driver:
+
+```json
+{
+  "fuel_litres": 72.34,
+  "energy_percent": 54.32,
+  "tyre_wear": {
+    "FL": 0.8123,
+    "FR": 0.7988,
+    "RL": 0.8457,
+    "RR": 0.8235
+  }
+}
+```
+
+If the car is remote-controlled, those phase events are still emitted but the telemetry snapshot is omitted.
 
 ## Output
 

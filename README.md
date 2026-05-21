@@ -86,6 +86,43 @@ Every API event is written to the outbox before the network request is attempted
 
 This means local logging remains the source of truth, and pit/driver events are not discarded just because the network is temporarily unavailable.
 
+### Tracking events
+
+The client publishes these pit-related API events:
+
+| Event | Moment |
+|-------|--------|
+| `pit_entered` | Car crosses into pit lane |
+| `pit_at_box` | First tick at the pit box (`PIT_STOPPED`, `PIT_EXITING`, or `PIT_GARAGE`) |
+| `pit_departed` | Service is complete and the car leaves the box |
+| `pit_exited` | Car crosses back onto the track |
+| `pitstop` | Rich pit summary emitted at pit exit |
+
+When the local client is the current driver, `pit_at_box` and `pit_departed`
+carry a live telemetry snapshot in `meta`:
+
+```json
+{
+  "fuel_litres": 72.34,
+  "energy_percent": 54.32,
+  "tyre_wear": {
+    "FL": 0.8123,
+    "FR": 0.7988,
+    "RL": 0.8457,
+    "RR": 0.8235
+  }
+}
+```
+
+Tyre wear comes from local wheel telemetry (`mWheels[i].mWear`), which LMU does
+not update reliably while a teammate is driving the car remotely. For that
+reason, the client omits this live snapshot whenever `mControl` indicates a
+remote driver. The `pitstop` summary also omits tyre-change details and
+`repair_flag` if either side of the pit stop was remote-controlled, because
+those values depend on comparing trustworthy pre- and post-service local
+telemetry. Fuel and energy remain included when the poller has a reliable
+source for them.
+
 ### File structure
 
 ```json
@@ -130,20 +167,26 @@ This means local logging remains the source of truth, and pit/driver events are 
         "total_pit_time_seconds": 40.0,
         "fuel_added_litres": 97.7,
         "energy_added_percent": 94.8,
+        "post_fuel_litres": 110.0,
+        "post_energy_percent": 100.0,
         "repair_flag": false,
         "driver_change": true,
         "new_driver": "Hamilton",
         "tyres": {
-          "FL": { "changed": true, "old_wear": 0.42, "old_compound": "Hard", "new_compound": "Medium" },
-          "FR": { "changed": true, "old_wear": 0.41, "old_compound": "Hard", "new_compound": "Medium" },
-          "RL": { "changed": true, "old_wear": 0.38, "old_compound": "Hard", "new_compound": "Medium" },
-          "RR": { "changed": true, "old_wear": 0.37, "old_compound": "Hard", "new_compound": "Medium" }
+          "FL": { "changed": true, "old_wear": 0.42, "old_compound": "Hard", "new_compound": "Medium", "new_wear": 1.0 },
+          "FR": { "changed": true, "old_wear": 0.41, "old_compound": "Hard", "new_compound": "Medium", "new_wear": 1.0 },
+          "RL": { "changed": true, "old_wear": 0.38, "old_compound": "Hard", "new_compound": "Medium", "new_wear": 1.0 },
+          "RR": { "changed": true, "old_wear": 0.37, "old_compound": "Hard", "new_compound": "Medium", "new_wear": 1.0 }
         }
       }
     }
   ]
 }
 ```
+
+For remote-controlled stints, `tyre_wear` is serialized as `null`. For pit
+stops where tyre and repair data cannot be trusted, `pit_stop.tyres` is an
+empty object and `repair_flag` is omitted.
 
 ## Building the executable
 
