@@ -4,6 +4,7 @@ from lmu_ep_client.api_client import ApiError
 from lmu_ep_client.session_context import (
     SessionContext,
     _build_driver_map,
+    fetch_practice_session_context,
     fetch_session_context,
 )
 
@@ -61,6 +62,34 @@ def test_fetch_session_context_handles_missing_roster_field():
 
     ctx = fetch_session_context(api, "r1")
     assert ctx.driver_to_member_id == {}
+
+
+def test_fetch_practice_session_context_creates_practice_session_and_fetches_roster():
+    api = MagicMock()
+    api.create_practice_session.return_value = {
+        "id": "p1",
+        "kind": "practice",
+        "eventRegistrationId": "r1",
+        "teamMemberId": "m1",
+    }
+    api.get_session.return_value = {
+        "id": "race1",
+        "teamMembers": [
+            {"id": "m1", "lmuDriverName": "Alex S."},
+            {"id": "m2", "lmuDriverName": "Jin K."},
+        ],
+    }
+
+    ctx = fetch_practice_session_context(api, "r1", "m1")
+
+    api.create_practice_session.assert_called_once_with("r1", "m1")
+    api.get_session.assert_called_once_with("r1")
+    assert ctx.registration_id == "r1"
+    assert ctx.session_id == "p1"
+    assert ctx.practice_session_id == "p1"
+    assert ctx.practice_team_member_id == "m1"
+    assert ctx.kind == "practice"
+    assert ctx.driver_to_member_id == {"Alex S.": "m1", "Jin K.": "m2"}
 
 
 def test_resolve_driver_cache_hit_does_not_call_api():

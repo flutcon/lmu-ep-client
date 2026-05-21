@@ -37,11 +37,17 @@ class TrackingPublisher:
     def registration_id(self) -> str:
         return self._ctx.registration_id
 
+    @property
+    def is_practice(self) -> bool:
+        return self._ctx.kind == "practice" and self._ctx.practice_session_id is not None
+
     @staticmethod
     def now_iso() -> str:
         return _now_iso()
 
     def _post_event(self, body: dict[str, Any]) -> None:
+        if self._ctx.practice_session_id is not None:
+            body = {**body, "practiceSessionId": self._ctx.practice_session_id}
         path = f"/api/tracking/registrations/{self._ctx.registration_id}/events"
         self._outbox.enqueue(path, body)
         self._outbox.drain(self._api, force=True)
@@ -50,7 +56,10 @@ class TrackingPublisher:
         return self._outbox.drain(self._api, force=force)
 
     def set_session_status(self, status: str) -> None:
-        self._outbox.enqueue_session_status(self._ctx.registration_id, status)
+        if self._ctx.practice_session_id is not None:
+            self._outbox.enqueue_practice_session_status(self._ctx.practice_session_id, status)
+        else:
+            self._outbox.enqueue_session_status(self._ctx.registration_id, status)
         self._outbox.drain(self._api, force=True)
 
     def end_session(self) -> None:
@@ -121,6 +130,30 @@ class TrackingPublisher:
         }
         if meta:
             body["meta"] = meta
+        self._post_event(body)
+
+    def resolve_driver(self, lmu_driver_name: str | None) -> str | None:
+        return self._resolve(lmu_driver_name)
+
+    def lap_completed(
+        self,
+        lap_time_seconds: float,
+        tyre_wear: dict[str, float],
+        energy_pct: float | None,
+        fuel_litres: float | None,
+        team_member_id: str | None = None,
+    ) -> None:
+        body: dict[str, Any] = {
+            "type": "lap_completed",
+            "occurredAt": _now_iso(),
+            "teamMemberId": team_member_id,
+            "meta": {
+                "lapTimeSeconds": lap_time_seconds,
+                "tyreWear": tyre_wear,
+                "energyPct": energy_pct,
+                "fuelLitres": fuel_litres,
+            },
+        }
         self._post_event(body)
 
     def pitstop(

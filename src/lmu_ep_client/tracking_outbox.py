@@ -84,6 +84,16 @@ class TrackingOutbox:
             registration_id=registration_id,
         )
 
+    def enqueue_practice_session_status(self, session_id: str, status: str) -> OutboxItem:
+        if status not in {"active", "ended"}:
+            raise ValueError("status must be 'active' or 'ended'")
+        return self._enqueue(
+            path=f"/api/tracking/practice/sessions/{session_id}",
+            body={"status": status},
+            operation="patch_practice_session_status",
+            registration_id=session_id,
+        )
+
     def _enqueue(
         self,
         path: str,
@@ -157,6 +167,9 @@ class TrackingOutbox:
         if record.get("operation") == "patch_session_status":
             api.patch_session_status(record["registration_id"], record["body"]["status"])
             return
+        if record.get("operation") == "patch_practice_session_status":
+            api.patch_practice_session_status(record["registration_id"], record["body"]["status"])
+            return
 
         api.post(
             record["path"],
@@ -168,6 +181,8 @@ class TrackingOutbox:
     def _describe(record: dict[str, Any]) -> str:
         if record.get("operation") == "patch_session_status":
             return f"session status {record.get('body', {}).get('status')}"
+        if record.get("operation") == "patch_practice_session_status":
+            return f"practice session status {record.get('body', {}).get('status')}"
         return f"{record.get('body', {}).get('type')} event"
 
     def _load(self) -> list[dict[str, Any]]:

@@ -200,6 +200,18 @@ def main() -> None:
         help="Registration ID to track events against (see --list-registrations)",
     )
     parser.add_argument(
+        "--practice",
+        action="store_true",
+        help="Publish events to a pre-event practice session instead of the race session",
+    )
+    parser.add_argument(
+        "--practice-team-member-id",
+        metavar="UUID",
+        type=str,
+        default=None,
+        help="Team member ID to pin the practice session to",
+    )
+    parser.add_argument(
         "--list-registrations",
         action="store_true",
         help="List your team's registrations from the API and exit. Requires --api-key.",
@@ -235,6 +247,12 @@ def main() -> None:
         parser.error("--api-key requires --registration-id (use --list-registrations to find one)")
     if args.registration_id and not api_key:
         parser.error(f"--registration-id requires an API key (--api-key, {ENV_API_KEY}, or config)")
+    if args.practice and not args.registration_id:
+        parser.error("--practice requires --registration-id")
+    if args.practice and not args.practice_team_member_id:
+        parser.error("--practice requires --practice-team-member-id")
+    if args.practice_team_member_id and not args.practice:
+        parser.error("--practice-team-member-id requires --practice")
 
     run(
         output_dir=args.output_dir,
@@ -244,6 +262,7 @@ def main() -> None:
         api_url=args.api_url,
         api_key=api_key if args.registration_id else None,
         registration_id=args.registration_id,
+        practice_team_member_id=args.practice_team_member_id if args.practice else None,
     )
 
 

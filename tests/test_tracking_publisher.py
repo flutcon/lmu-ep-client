@@ -10,10 +10,14 @@ def _make(
     api: MagicMock,
     roster: dict[str, str] | None = None,
     outbox: TrackingOutbox | None = None,
+    practice_session_id: str | None = None,
 ) -> TrackingPublisher:
     ctx = SessionContext(
         registration_id="r1",
-        session_id="s1",
+        session_id=practice_session_id or "s1",
+        kind="practice" if practice_session_id else "race",
+        practice_session_id=practice_session_id,
+        practice_team_member_id="m1" if practice_session_id else None,
         driver_to_member_id=roster or {"Alex S.": "m1", "Jin K.": "m3"},
     )
     return TrackingPublisher(api, ctx, outbox=outbox or TrackingOutbox.in_memory())
@@ -162,6 +166,16 @@ def test_end_session_patches_status_through_outbox(tmp_path):
     assert TrackingOutbox(tmp_path / "outbox.json").pending_count == 0
 
 
+def test_end_practice_session_patches_practice_status_through_outbox(tmp_path):
+    api = MagicMock()
+    pub = _make(api, outbox=TrackingOutbox(tmp_path / "outbox.json"), practice_session_id="p1")
+
+    pub.end_session()
+
+    api.patch_practice_session_status.assert_called_once_with("p1", "ended")
+    assert TrackingOutbox(tmp_path / "outbox.json").pending_count == 0
+
+
 def test_end_session_queues_failed_status_for_later_replay(tmp_path):
     api = MagicMock()
     api.patch_session_status.side_effect = ApiError(status=0, code="NETWORK", message="down")
@@ -253,6 +267,33 @@ def test_pit_phase_methods_attach_meta_when_provided():
     assert box_body["meta"] == meta
     assert departed_body["type"] == "pit_departed"
     assert departed_body["meta"] == meta
+
+
+def test_practice_events_include_practice_session_id():
+    api = MagicMock()
+    pub = _make(api, practice_session_id="p1")
+
+    pub.driver_started("Alex S.")
+    pub.pit_at_box()
+    pub.lap_completed(
+        lap_time_seconds=124.318,
+        tyre_wear={"fl": 92.4, "fr": 91.7, "rl": 87.0, "rr": 86.5},
+        energy_pct=73.2,
+        fuel_litres=48.5,
+        team_member_id="m1",
+    )
+
+    bodies = _post_bodies(api)
+    assert [body["type"] for body in bodies] == ["driver_started", "pit_at_box", "lap_completed"]
+    for body in bodies:
+        assert body["practiceSessionId"] == "p1"
+    assert bodies[2]["teamMemberId"] == "m1"
+    assert bodies[2]["meta"] == {
+        "lapTimeSeconds": 124.318,
+        "tyreWear": {"fl": 92.4, "fr": 91.7, "rl": 87.0, "rr": 86.5},
+        "energyPct": 73.2,
+        "fuelLitres": 48.5,
+    }
 
 
 def test_now_iso_returns_zulu_timestamp():

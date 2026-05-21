@@ -232,6 +232,33 @@ When API publishing is enabled, the client emits these pit events:
 
 If the car is remote-controlled, those phase events are still emitted but the telemetry snapshot is omitted.
 
+### Pre-Event Practice API Mode
+
+When started with `--practice --practice-team-member-id <uuid>`, API publishing targets a practice tracking session instead of the race session:
+
+- The client creates/resumes the practice session with `POST /api/tracking/registrations/{regId}/practice/sessions`.
+- All published driver and pit events include `practiceSessionId`.
+- Shutdown marks the practice session ended with `PATCH /api/tracking/practice/sessions/{sessionId}`.
+- Race-mode behavior is unchanged when `--practice` is omitted.
+
+Practice mode emits `lap_completed` when `mTotalLaps` increments and local telemetry is trustworthy (`mControl != 2`). The event meta is:
+
+```json
+{
+  "lapTimeSeconds": 124.318,
+  "tyreWear": {
+    "fl": 92.44,
+    "fr": 91.71,
+    "rl": 87.04,
+    "rr": 86.55
+  },
+  "energyPct": 73.23,
+  "fuelLitres": 48.46
+}
+```
+
+`lapTimeSeconds` comes from scoring `mLastLapTime`. `tyreWear` is percent remaining from `mWheels[i].mWear * 100`, lower-case wheel keys to match the API contract. Remote-controlled laps are skipped because the API requires tyre wear and LMU does not update local wheel wear reliably for remote drivers.
+
 ## Output
 
 ### File Location & Naming

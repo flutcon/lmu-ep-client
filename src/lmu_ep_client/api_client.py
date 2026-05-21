@@ -141,3 +141,20 @@ class TrackingClient:
             f"/api/tracking/registrations/{registration_id}/session",
             body={"status": status},
         )
+
+    def create_practice_session(self, registration_id: str, team_member_id: str) -> dict:
+        return self.post(
+            f"/api/tracking/registrations/{registration_id}/practice/sessions",
+            body={"teamMemberId": team_member_id},
+        )
+
+    def list_practice_sessions(self, registration_id: str) -> list[dict]:
+        return self.get(f"/api/tracking/registrations/{registration_id}/practice/sessions")
+
+    def patch_practice_session_status(self, session_id: str, status: str) -> dict:
+        if status not in {"active", "ended"}:
+            raise ValueError("status must be 'active' or 'ended'")
+        return self.patch(
+            f"/api/tracking/practice/sessions/{session_id}",
+            body={"status": status},
+        )

@@ -70,3 +70,30 @@ def test_config_file_provides_api_key(monkeypatch, tmp_path):
     cli.main()
 
     assert seen["api_key"] == "config-key"
+
+
+def test_cli_practice_requires_team_member_id(monkeypatch):
+    monkeypatch.setenv("LMU_EP_API_KEY", "env-key")
+    _set_argv(monkeypatch, "--registration-id", "reg-1", "--practice")
+
+    try:
+        cli.main()
+    except SystemExit as e:
+        assert e.code == 2
+    else:
+        raise AssertionError("expected parser error")
+
+
+def test_cli_passes_practice_team_member_id(monkeypatch):
+    seen = {}
+
+    def fake_run(**kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setenv("LMU_EP_API_KEY", "env-key")
+    monkeypatch.setattr(cli, "run", fake_run)
+    _set_argv(monkeypatch, "--registration-id", "reg-1", "--practice", "--practice-team-member-id", "member-1")
+
+    cli.main()
+
+    assert seen["practice_team_member_id"] == "member-1"

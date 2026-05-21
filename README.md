@@ -18,6 +18,7 @@ Download or build `lmu-ep-client.exe` (see below). Start it before or during a s
 lmu-ep-client.exe
 lmu-ep-client.exe --output-dir C:\path\to\sessions
 lmu-ep-client.exe --registration-id <uuid>
+lmu-ep-client.exe --registration-id <uuid> --practice --practice-team-member-id <uuid>
 lmu-ep-client.exe --api-key lmu_... --registration-id <uuid>
 lmu-ep-client.exe --debug
 ```
@@ -45,6 +46,8 @@ python -m lmu_ep_client --list-registrations
 | `--api-key KEY` | off | Bearer API key for live tracking events; overrides `LMU_EP_API_KEY` and config |
 | `--config PATH` | user config path | TOML config file with `api_key` or `[tracking].api_key` |
 | `--registration-id UUID` | off | Event registration to publish tracking events against |
+| `--practice` | off | Publish API events to a pre-event practice session instead of the race session |
+| `--practice-team-member-id UUID` | off | Team member ID to pin the practice session to; required with `--practice` |
 | `--list-registrations` | off | List API registrations for the configured API key, then exit |
 | `--api-url URL` | production API | Override the tracking API base URL |
 | `--debug` | off | Enable debug logging to stderr |
@@ -85,6 +88,47 @@ If `--output-dir` is set, the outbox is stored in that directory instead.
 Every API event is written to the outbox before the network request is attempted. Each queued event has a stable idempotency key that is reused on retries, so a restart or network drop does not create a new logical event. After the API accepts an event, the outbox marks it with `sent_at`; unsent events are replayed on startup and retried during polling with exponential backoff.
 
 This means local logging remains the source of truth, and pit/driver events are not discarded just because the network is temporarily unavailable.
+
+### Practice sessions
+
+Use `--practice` to publish to a pre-event practice session for one driver:
+
+```
+lmu-ep-client.exe --registration-id <uuid> --practice --practice-team-member-id <uuid>
+```
+
+On startup the client creates or resumes the practice session for that
+registration/team-member pair. All normal driver and pit events are posted with
+`practiceSessionId`, and shutdown marks the practice session ended instead of
+ending the race tracking session.
+
+Practice mode also sends `lap_completed` events when `mTotalLaps` increments
+and the local client is the current driver. The lap event uses the last-lap time
+from scoring (`mLastLapTime`) plus the current fuel, energy, and tyre-wear
+snapshot:
+
+```json
+{
+  "type": "lap_completed",
+  "practiceSessionId": "practice-session-uuid",
+  "teamMemberId": "team-member-uuid",
+  "meta": {
+    "lapTimeSeconds": 124.318,
+    "tyreWear": {
+      "fl": 92.44,
+      "fr": 91.71,
+      "rl": 87.04,
+      "rr": 86.55
+    },
+    "energyPct": 73.23,
+    "fuelLitres": 48.46
+  }
+}
+```
+
+Tyre wear in practice lap events is percent remaining. Because LMU only updates
+per-wheel wear reliably for the local/current driver, remote-controlled laps are
+not published as `lap_completed` events.
 
 ### Tracking events
 

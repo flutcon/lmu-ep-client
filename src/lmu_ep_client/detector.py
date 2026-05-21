@@ -72,6 +72,7 @@ class TickData:
     vehicle_class: str
     pit_state: int
     total_laps: int
+    last_lap_time: float
     fuel: float
     fuel_capacity: float
     virtual_energy: float
@@ -120,6 +121,7 @@ class StintDetector:
         self._pit_depart_elapsed: float = 0.0
         self._pit_departed_emitted: bool = False
         self._session_active: bool = False
+        self._prev_total_laps: int | None = None
 
     def update(self, tick: TickData) -> set[str]:
         events: set[str] = set()
@@ -146,6 +148,9 @@ class StintDetector:
                     logger.debug("Session started while in pits (pit_state=%d), deferring first stint", tick.pit_state)
                 events.add("session_start")
         else:
+            if self._prev_total_laps is not None and tick.total_laps > self._prev_total_laps:
+                events.add("lap_completed")
+
             # Session end detection (SessionOver or return to garage)
             if tick.game_phase in (PHASE_SESSION_OVER, PHASE_GARAGE):
                 self._finalize_current_stint(tick)
@@ -160,6 +165,7 @@ class StintDetector:
                 self._pit_departed_emitted = False
                 self._current_stint_start = None
                 self._prev_pit_state = tick.pit_state
+                self._prev_total_laps = None
                 return events
 
             # Pit state transitions
@@ -167,6 +173,7 @@ class StintDetector:
             events.update(pit_events)
 
         self._prev_pit_state = tick.pit_state
+        self._prev_total_laps = tick.total_laps
         return events
 
     def _start_stint(self, tick: TickData) -> None:

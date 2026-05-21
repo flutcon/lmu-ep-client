@@ -13,6 +13,7 @@ def _make_tick(
     vehicle_class: str = "Hypercar",
     pit_state: int = 0,
     total_laps: int = 0,
+    last_lap_time: float = 124.318,
     fuel: float = 110.0,
     fuel_capacity: float = 110.0,
     virtual_energy: float = 100.0,
@@ -41,6 +42,7 @@ def _make_tick(
         vehicle_class=vehicle_class,
         pit_state=pit_state,
         total_laps=total_laps,
+        last_lap_time=last_lap_time,
         fuel=fuel,
         fuel_capacity=fuel_capacity,
         virtual_energy=virtual_energy,
@@ -80,6 +82,24 @@ def test_startup_stationary_no_mid_stint_join():
     events = det.update(_make_tick(game_phase=5, elapsed=0.0, speed=0.0))
     assert "session_start" in events
     assert "mid_stint_join" not in events
+
+
+def test_lap_completed_event_on_total_laps_increment():
+    det = _make_detector()
+    det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=3))
+
+    events = det.update(_make_tick(elapsed=130.0, total_laps=4))
+
+    assert "lap_completed" in events
+
+
+def test_lap_completed_not_emitted_for_initial_mid_session_lap_count():
+    det = _make_detector()
+
+    events = det.update(_make_tick(game_phase=5, elapsed=500.0, total_laps=12))
+
+    assert "session_start" in events
+    assert "lap_completed" not in events
 
 
 def test_session_start_detected():

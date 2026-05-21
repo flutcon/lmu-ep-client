@@ -270,6 +270,61 @@ def test_patch_session_status_calls_correct_path():
     assert json.loads(captured["body"]) == {"status": "ended"}
 
 
+def test_create_practice_session_posts_to_correct_path():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        captured["body"] = req.data
+        return _FakeResponse(b'{"id":"p1","kind":"practice"}')
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        result = c.create_practice_session("reg-uuid", "member-uuid")
+
+    assert result == {"id": "p1", "kind": "practice"}
+    assert captured["url"] == "https://lmu-ep.vercel.app/api/tracking/registrations/reg-uuid/practice/sessions"
+    assert captured["method"] == "POST"
+    assert json.loads(captured["body"]) == {"teamMemberId": "member-uuid"}
+
+
+def test_list_practice_sessions_calls_correct_path():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        return _FakeResponse(b"[]")
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        result = c.list_practice_sessions("reg-uuid")
+
+    assert result == []
+    assert captured["url"] == "https://lmu-ep.vercel.app/api/tracking/registrations/reg-uuid/practice/sessions"
+    assert captured["method"] == "GET"
+
+
+def test_patch_practice_session_status_calls_correct_path():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        captured["body"] = req.data
+        return _FakeResponse(b'{"status":"ended"}')
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        result = c.patch_practice_session_status("practice-uuid", "ended")
+
+    assert result == {"status": "ended"}
+    assert captured["url"] == "https://lmu-ep.vercel.app/api/tracking/practice/sessions/practice-uuid"
+    assert captured["method"] == "PATCH"
+    assert json.loads(captured["body"]) == {"status": "ended"}
+
+
 def test_network_error_wrapped():
     c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
 

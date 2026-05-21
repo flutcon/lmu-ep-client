@@ -48,6 +48,7 @@ def _shared_memory_info(*, control: int = 0, fuel_fraction: int = 128) -> Simple
         mVehicleClass=_bytes("Hypercar"),
         mPitState=0,
         mTotalLaps=7,
+        mLastLapTime=124.318,
         mFuelFraction=fuel_fraction,
         mFinishStatus=0,
         mPitGroup=_bytes("Penske"),
@@ -88,6 +89,7 @@ def _tick(**overrides) -> TickData:
         vehicle_class="Hypercar",
         pit_state=0,
         total_laps=0,
+        last_lap_time=124.318,
         fuel=100.0,
         fuel_capacity=100.0,
         virtual_energy=100.0,
@@ -135,6 +137,7 @@ def test_shared_memory_reader_uses_networked_fuel_fraction_for_remote_control():
     assert tick.fuel == pytest.approx((64 / 255.0) * 100.0)
     assert tick.speed == pytest.approx(5.0)
     assert tick.vehicle_model == "Porsche 963"
+    assert tick.last_lap_time == 124.318
 
 
 class _Reader:
@@ -316,3 +319,43 @@ def test_tracking_api_sink_omits_snapshot_when_remote_driver_controls_car():
 
     publisher.pit_at_box.assert_called_once_with(meta=None)
     publisher.pit_departed.assert_called_once_with(meta=None)
+
+
+def test_tracking_api_sink_emits_lap_completed_with_local_practice_telemetry():
+    publisher = MagicMock()
+    publisher.resolve_driver.return_value = "m1"
+    publisher.is_practice = True
+    sink = TrackingApiSink(publisher)
+    tick = _tick(
+        driver="Alex",
+        last_lap_time=124.318,
+        fuel=48.456,
+        virtual_energy=73.234,
+        wheels=[
+            {"wear": 0.9244, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+            {"wear": 0.9171, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+            {"wear": 0.8704, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+            {"wear": 0.8655, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+        ],
+        control=0,
+    )
+
+    sink.on_events({"lap_completed"}, tick, SimpleNamespace())
+
+    publisher.lap_completed.assert_called_once_with(
+        lap_time_seconds=124.318,
+        tyre_wear={"fl": 92.44, "fr": 91.71, "rl": 87.04, "rr": 86.55},
+        energy_pct=73.23,
+        fuel_litres=48.46,
+        team_member_id="m1",
+    )
+
+
+def test_tracking_api_sink_skips_lap_completed_when_remote_driver_controls_car():
+    publisher = MagicMock()
+    publisher.is_practice = True
+    sink = TrackingApiSink(publisher)
+
+    sink.on_events({"lap_completed"}, _tick(control=2), SimpleNamespace())
+
+    publisher.lap_completed.assert_not_called()

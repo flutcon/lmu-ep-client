@@ -11,7 +11,7 @@ from pyLMUSharedMemory import lmu_data
 
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.detector import CONTROL_REMOTE, WHEEL_POSITIONS, StintDetector, TickData
-from lmu_ep_client.session_context import fetch_session_context
+from lmu_ep_client.session_context import fetch_practice_session_context, fetch_session_context
 from lmu_ep_client.tracking_outbox import TrackingOutbox, default_outbox_path
 from lmu_ep_client.tracking_publisher import TrackingPublisher
 from lmu_ep_client.writer import flush_session
@@ -66,6 +66,22 @@ def _live_pit_snapshot_meta(tick: TickData) -> dict[str, Any] | None:
             pos: round(tick.wheels[i]["wear"], 4)
             for i, pos in enumerate(WHEEL_POSITIONS)
         },
+    }
+
+
+def _practice_lap_payload(tick: TickData) -> dict[str, Any] | None:
+    if tick.control == CONTROL_REMOTE or tick.last_lap_time <= 0:
+        return None
+    return {
+        "lap_time_seconds": round(tick.last_lap_time, 3),
+        "tyre_wear": {
+            "fl": round(tick.wheels[0]["wear"] * 100.0, 2),
+            "fr": round(tick.wheels[1]["wear"] * 100.0, 2),
+            "rl": round(tick.wheels[2]["wear"] * 100.0, 2),
+            "rr": round(tick.wheels[3]["wear"] * 100.0, 2),
+        },
+        "energy_pct": round(tick.virtual_energy, 2),
+        "fuel_litres": round(tick.fuel, 2),
     }
 
 
@@ -169,6 +185,7 @@ def _read_tick(info: lmu_data.SimInfo, player_id: int) -> TickData | None:
             vehicle_class=_decode(veh_scoring.mVehicleClass),
             pit_state=veh_scoring.mPitState,
             total_laps=veh_scoring.mTotalLaps,
+            last_lap_time=veh_scoring.mLastLapTime,
             fuel=fuel,
             fuel_capacity=fuel_capacity,
             virtual_energy=veh_telem.mVirtualEnergy * 100.0,
@@ -324,6 +341,14 @@ class TrackingApiSink:
     def on_events(self, events: set[str], tick: TickData, detector: StintDetector) -> None:
         if "session_start" in events:
             self._publisher.driver_started(tick.driver, meta=_started_meta(tick))
+
+        if "lap_completed" in events and self._publisher.is_practice:
+            payload = _practice_lap_payload(tick)
+            if payload is not None:
+                self._publisher.lap_completed(
+                    **payload,
+                    team_member_id=self._publisher.resolve_driver(tick.driver),
+                )
 
         if "pit_enter" in events:
             self._pit_entered_at = self._publisher.now_iso()
@@ -483,6 +508,7 @@ def _create_tracking_sink(
     api_url: str | None,
     api_key: str | None,
     registration_id: str | None,
+    practice_team_member_id: str | None,
     log: Callable[[str], None],
 ) -> TrackingApiSink | None:
     if not api_key:
@@ -494,7 +520,10 @@ def _create_tracking_sink(
         return None
 
     try:
-        session_ctx = fetch_session_context(api, registration_id)
+        if practice_team_member_id:
+            session_ctx = fetch_practice_session_context(api, registration_id, practice_team_member_id)
+        else:
+            session_ctx = fetch_session_context(api, registration_id)
     except ApiError as e:
         log(f"Failed to initialize tracking session: {e}")
         return None
@@ -524,6 +553,7 @@ def run(
     api_url: str | None = None,
     api_key: str | None = None,
     registration_id: str | None = None,
+    practice_team_member_id: str | None = None,
     reader: SharedMemoryReader | None = None,
     selector: PlayerSelector | None = None,
     sinks: list[Any] | None = None,
@@ -533,7 +563,14 @@ def run(
 ) -> None:
     if sinks is None:
         sinks = [JsonSink(output_dir=output_dir, monotonic=monotonic, log=log)]
-        tracking_sink = _create_tracking_sink(output_dir, api_url, api_key, registration_id, log)
+        tracking_sink = _create_tracking_sink(
+            output_dir,
+            api_url,
+            api_key,
+            registration_id,
+            practice_team_member_id,
+            log,
+        )
         if api_key and registration_id and tracking_sink is None:
             return
         if tracking_sink is not None:
