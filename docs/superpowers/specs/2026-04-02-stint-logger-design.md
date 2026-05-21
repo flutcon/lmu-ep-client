@@ -239,6 +239,7 @@ When started with `--practice --practice-team-member-id <uuid>`, API publishing 
 - The client creates/resumes the practice session with `POST /api/tracking/registrations/{regId}/practice/sessions`.
 - All published driver and pit events include `practiceSessionId`.
 - Shutdown marks the practice session ended with `PATCH /api/tracking/practice/sessions/{sessionId}`.
+- Practice startup does not require a race tracking session to already exist; the pinned practice team member ID is used as the event driver identity when no roster has been fetched.
 - Race-mode behavior is unchanged when `--practice` is omitted.
 
 Practice mode emits `lap_completed` when `mTotalLaps` increments and local telemetry is trustworthy (`mControl != 2`). The event meta is:

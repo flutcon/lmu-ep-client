@@ -296,6 +296,27 @@ def test_practice_events_include_practice_session_id():
     }
 
 
+def test_practice_driver_events_fall_back_to_pinned_team_member_without_roster():
+    api = MagicMock()
+    ctx = SessionContext(
+        registration_id="r1",
+        session_id="p1",
+        kind="practice",
+        practice_session_id="p1",
+        practice_team_member_id="m1",
+        driver_to_member_id={},
+    )
+    pub = TrackingPublisher(api, ctx, outbox=TrackingOutbox.in_memory())
+
+    pub.driver_started("Unknown LMU Name")
+
+    _, body = _last_post(api)
+    assert body["type"] == "driver_started"
+    assert body["teamMemberId"] == "m1"
+    assert body["practiceSessionId"] == "p1"
+    api.get_session.assert_not_called()
+
+
 def test_now_iso_returns_zulu_timestamp():
     from lmu_ep_client.tracking_publisher import TrackingPublisher
 

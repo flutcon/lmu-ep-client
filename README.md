@@ -100,7 +100,9 @@ lmu-ep-client.exe --registration-id <uuid> --practice --practice-team-member-id 
 On startup the client creates or resumes the practice session for that
 registration/team-member pair. All normal driver and pit events are posted with
 `practiceSessionId`, and shutdown marks the practice session ended instead of
-ending the race tracking session.
+ending the race tracking session. Practice startup does not require a race
+tracking session to exist for the registration; the provided
+`--practice-team-member-id` is used as the driver identity for practice events.
 
 Practice mode also sends `lap_completed` events when `mTotalLaps` increments
 and the local client is the current driver. The lap event uses the last-lap time

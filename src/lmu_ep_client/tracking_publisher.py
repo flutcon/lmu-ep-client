@@ -98,7 +98,9 @@ class TrackingPublisher:
 
     def _resolve(self, lmu_driver_name: str | None) -> str | None:
         if not lmu_driver_name:
-            return None
+            return self._ctx.practice_team_member_id if self.is_practice else None
+        if self.is_practice:
+            return self._ctx.driver_to_member_id.get(lmu_driver_name) or self._ctx.practice_team_member_id
         member_id = self._ctx.resolve_driver(lmu_driver_name, api=self._api)
         if member_id is None:
             logger.warning(

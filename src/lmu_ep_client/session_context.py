@@ -90,13 +90,11 @@ def fetch_practice_session_context(
     team_member_id: str,
 ) -> SessionContext:
     practice = api.create_practice_session(registration_id, team_member_id)
-    payload = api.get_session(registration_id)
-    roster = payload.get("teamMembers") or []
     return SessionContext(
         registration_id=registration_id,
         session_id=practice["id"],
         kind="practice",
         practice_session_id=practice["id"],
         practice_team_member_id=team_member_id,
-        driver_to_member_id=_build_driver_map(roster),
+        driver_to_member_id={},
     )
