@@ -69,11 +69,12 @@ def _live_pit_snapshot_meta(tick: TickData) -> dict[str, Any] | None:
     }
 
 
-def _practice_lap_payload(tick: TickData) -> dict[str, Any] | None:
-    if tick.control == CONTROL_REMOTE or tick.last_lap_time <= 0:
+def _practice_lap_payload(tick: TickData, lap_time_seconds: float | None = None) -> dict[str, Any] | None:
+    resolved_lap_time = tick.last_lap_time if tick.last_lap_time > 0 else lap_time_seconds
+    if tick.control == CONTROL_REMOTE or resolved_lap_time is None or resolved_lap_time <= 0:
         return None
     return {
-        "lap_time_seconds": round(tick.last_lap_time, 3),
+        "lap_time_seconds": round(resolved_lap_time, 3),
         "tyre_wear": {
             "fl": round(tick.wheels[0]["wear"] * 100.0, 2),
             "fr": round(tick.wheels[1]["wear"] * 100.0, 2),
@@ -185,6 +186,8 @@ def _read_tick(info: lmu_data.SimInfo, player_id: int) -> TickData | None:
             vehicle_class=_decode(veh_scoring.mVehicleClass),
             pit_state=veh_scoring.mPitState,
             total_laps=veh_scoring.mTotalLaps,
+            lap_distance=veh_scoring.mLapDist,
+            track_length=scoring_info.mLapDist,
             last_lap_time=veh_scoring.mLastLapTime,
             fuel=fuel,
             fuel_capacity=fuel_capacity,
@@ -337,13 +340,19 @@ class TrackingApiSink:
     def __init__(self, publisher: TrackingPublisher) -> None:
         self._publisher = publisher
         self._pit_entered_at: str | None = None
+        self._last_lap_completed_elapsed: float | None = None
 
     def on_events(self, events: set[str], tick: TickData, detector: StintDetector) -> None:
         if "session_start" in events:
             self._publisher.driver_started(tick.driver, meta=_started_meta(tick))
+            self._last_lap_completed_elapsed = tick.elapsed
 
         if "lap_completed" in events and self._publisher.is_practice:
-            payload = _practice_lap_payload(tick)
+            fallback_lap_time = None
+            if self._last_lap_completed_elapsed is not None:
+                fallback_lap_time = tick.elapsed - self._last_lap_completed_elapsed
+            payload = _practice_lap_payload(tick, lap_time_seconds=fallback_lap_time)
+            self._last_lap_completed_elapsed = tick.elapsed
             if payload is not None:
                 self._publisher.lap_completed(
                     **payload,
@@ -378,6 +387,7 @@ class TrackingApiSink:
                 self._publisher.driver_stopped(tick.driver, meta=_stopped_meta(tick))
             self._publisher.end_session()
             self._pit_entered_at = None
+            self._last_lap_completed_elapsed = None
 
     def periodic(self, detector: StintDetector) -> None:
         self._publisher.flush_pending()

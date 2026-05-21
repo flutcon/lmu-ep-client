@@ -40,6 +40,7 @@ def _shared_memory_info(*, control: int = 0, fuel_fraction: int = 128) -> Simple
         mSession=10,
         mTrackName=_bytes("Le Mans"),
         mCurrentET=123.4,
+        mLapDist=5000.0,
     )
     vehicle_scoring = SimpleNamespace(
         mID=42,
@@ -48,6 +49,7 @@ def _shared_memory_info(*, control: int = 0, fuel_fraction: int = 128) -> Simple
         mVehicleClass=_bytes("Hypercar"),
         mPitState=0,
         mTotalLaps=7,
+        mLapDist=1234.5,
         mLastLapTime=124.318,
         mFuelFraction=fuel_fraction,
         mFinishStatus=0,
@@ -89,6 +91,8 @@ def _tick(**overrides) -> TickData:
         vehicle_class="Hypercar",
         pit_state=0,
         total_laps=0,
+        lap_distance=0.0,
+        track_length=5000.0,
         last_lap_time=124.318,
         fuel=100.0,
         fuel_capacity=100.0,
@@ -138,6 +142,8 @@ def test_shared_memory_reader_uses_networked_fuel_fraction_for_remote_control():
     assert tick.speed == pytest.approx(5.0)
     assert tick.vehicle_model == "Porsche 963"
     assert tick.last_lap_time == 124.318
+    assert tick.lap_distance == 1234.5
+    assert tick.track_length == 5000.0
 
 
 class _Reader:
@@ -349,6 +355,28 @@ def test_tracking_api_sink_emits_lap_completed_with_local_practice_telemetry():
         fuel_litres=48.46,
         team_member_id="m1",
     )
+
+
+def test_tracking_api_sink_uses_elapsed_delta_when_last_lap_time_is_unavailable():
+    publisher = MagicMock()
+    publisher.resolve_driver.return_value = "m1"
+    publisher.is_practice = True
+    sink = TrackingApiSink(publisher)
+
+    sink.on_events({"session_start"}, _tick(elapsed=10.0, total_laps=0), SimpleNamespace())
+    tick = _tick(
+        elapsed=135.4321,
+        total_laps=1,
+        last_lap_time=0.0,
+        fuel=48.456,
+        virtual_energy=73.234,
+        control=0,
+    )
+
+    sink.on_events({"lap_completed"}, tick, SimpleNamespace())
+
+    publisher.lap_completed.assert_called_once()
+    assert publisher.lap_completed.call_args.kwargs["lap_time_seconds"] == 125.432
 
 
 def test_tracking_api_sink_skips_lap_completed_when_remote_driver_controls_car():

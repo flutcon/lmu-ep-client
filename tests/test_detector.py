@@ -13,6 +13,8 @@ def _make_tick(
     vehicle_class: str = "Hypercar",
     pit_state: int = 0,
     total_laps: int = 0,
+    lap_distance: float = 0.0,
+    track_length: float = 5000.0,
     last_lap_time: float = 124.318,
     fuel: float = 110.0,
     fuel_capacity: float = 110.0,
@@ -42,6 +44,8 @@ def _make_tick(
         vehicle_class=vehicle_class,
         pit_state=pit_state,
         total_laps=total_laps,
+        lap_distance=lap_distance,
+        track_length=track_length,
         last_lap_time=last_lap_time,
         fuel=fuel,
         fuel_capacity=fuel_capacity,
@@ -100,6 +104,15 @@ def test_lap_completed_not_emitted_for_initial_mid_session_lap_count():
 
     assert "session_start" in events
     assert "lap_completed" not in events
+
+
+def test_lap_completed_event_on_lap_distance_wrap_without_total_lap_increment():
+    det = _make_detector()
+    det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=3, lap_distance=4900.0, track_length=5000.0))
+
+    events = det.update(_make_tick(elapsed=130.0, total_laps=3, lap_distance=80.0, track_length=5000.0))
+
+    assert "lap_completed" in events
 
 
 def test_session_start_detected():

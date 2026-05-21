@@ -105,9 +105,12 @@ tracking session to exist for the registration; the provided
 `--practice-team-member-id` is used as the driver identity for practice events.
 
 Practice mode also sends `lap_completed` events when `mTotalLaps` increments
-and the local client is the current driver. The lap event uses the last-lap time
-from scoring (`mLastLapTime`) plus the current fuel, energy, and tyre-wear
-snapshot:
+or when the vehicle lap distance wraps over start/finish, and the local client
+is the current driver. The lap-distance fallback catches practice laps that LMU
+does not count in `mTotalLaps`, such as invalidated laps. The lap event uses the
+last-lap time from scoring (`mLastLapTime`) when available, falling back to the
+elapsed-time delta between lap crossings if LMU has not populated `mLastLapTime`
+yet. It also includes the current fuel, energy, and tyre-wear snapshot:
 
 ```json
 {

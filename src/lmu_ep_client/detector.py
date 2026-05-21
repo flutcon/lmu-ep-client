@@ -58,6 +58,8 @@ MOVING_SPEED_THRESHOLD = 1.0  # m/s — above this the car is considered in moti
 
 # mControl values from LMUVehicleScoring (vendor/pyLMUSharedMemory/lmu_data.py:223)
 CONTROL_REMOTE = 2
+LAP_WRAP_PREV_FRACTION = 0.8
+LAP_WRAP_CURR_FRACTION = 0.2
 
 
 @dataclass
@@ -72,6 +74,8 @@ class TickData:
     vehicle_class: str
     pit_state: int
     total_laps: int
+    lap_distance: float
+    track_length: float
     last_lap_time: float
     fuel: float
     fuel_capacity: float
@@ -122,6 +126,7 @@ class StintDetector:
         self._pit_departed_emitted: bool = False
         self._session_active: bool = False
         self._prev_total_laps: int | None = None
+        self._prev_lap_distance: float | None = None
 
     def update(self, tick: TickData) -> set[str]:
         events: set[str] = set()
@@ -148,7 +153,7 @@ class StintDetector:
                     logger.debug("Session started while in pits (pit_state=%d), deferring first stint", tick.pit_state)
                 events.add("session_start")
         else:
-            if self._prev_total_laps is not None and tick.total_laps > self._prev_total_laps:
+            if self._lap_completed(tick):
                 events.add("lap_completed")
 
             # Session end detection (SessionOver or return to garage)
@@ -166,6 +171,7 @@ class StintDetector:
                 self._current_stint_start = None
                 self._prev_pit_state = tick.pit_state
                 self._prev_total_laps = None
+                self._prev_lap_distance = None
                 return events
 
             # Pit state transitions
@@ -174,7 +180,18 @@ class StintDetector:
 
         self._prev_pit_state = tick.pit_state
         self._prev_total_laps = tick.total_laps
+        self._prev_lap_distance = tick.lap_distance
         return events
+
+    def _lap_completed(self, tick: TickData) -> bool:
+        if self._prev_total_laps is not None and tick.total_laps > self._prev_total_laps:
+            return True
+        if self._prev_lap_distance is None or tick.track_length <= 0:
+            return False
+        return (
+            self._prev_lap_distance > tick.track_length * LAP_WRAP_PREV_FRACTION
+            and tick.lap_distance < tick.track_length * LAP_WRAP_CURR_FRACTION
+        )
 
     def _start_stint(self, tick: TickData) -> None:
         self._current_stint_start = _StintStart(

@@ -242,7 +242,7 @@ When started with `--practice --practice-team-member-id <uuid>`, API publishing 
 - Practice startup does not require a race tracking session to already exist; the pinned practice team member ID is used as the event driver identity when no roster has been fetched.
 - Race-mode behavior is unchanged when `--practice` is omitted.
 
-Practice mode emits `lap_completed` when `mTotalLaps` increments and local telemetry is trustworthy (`mControl != 2`). The event meta is:
+Practice mode emits `lap_completed` when `mTotalLaps` increments or when vehicle `mLapDist` wraps over start/finish while local telemetry is trustworthy (`mControl != 2`). The `mLapDist` fallback catches practice laps that LMU does not count in `mTotalLaps`, such as invalidated laps. The event meta is:
 
 ```json
 {
@@ -258,7 +258,7 @@ Practice mode emits `lap_completed` when `mTotalLaps` increments and local telem
 }
 ```
 
-`lapTimeSeconds` comes from scoring `mLastLapTime`. `tyreWear` is percent remaining from `mWheels[i].mWear * 100`, lower-case wheel keys to match the API contract. Remote-controlled laps are skipped because the API requires tyre wear and LMU does not update local wheel wear reliably for remote drivers.
+`lapTimeSeconds` comes from scoring `mLastLapTime` when available. If LMU has not populated `mLastLapTime` yet, the client falls back to the elapsed-time delta between lap crossings. `tyreWear` is percent remaining from `mWheels[i].mWear * 100`, lower-case wheel keys to match the API contract. Remote-controlled laps are skipped because the API requires tyre wear and LMU does not update local wheel wear reliably for remote drivers.
 
 ## Output
 
