@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ OUTBOX_FILENAME = "tracking-outbox.json"
 INITIAL_BACKOFF_SECONDS = 2.0
 MAX_BACKOFF_SECONDS = 300.0
 DEFAULT_MAX_SENT_RECORDS = 500
+SAVE_RETRY_DELAYS_SECONDS = (0.05, 0.1, 0.2)
 
 
 def _now_iso() -> str:
@@ -208,8 +210,27 @@ class TrackingOutbox:
         self._compact_sent_records()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_name(f"{self._path.name}.tmp")
-        tmp.write_text(json.dumps(self._records, indent=2), encoding="utf-8")
-        tmp.replace(self._path)
+        payload = json.dumps(self._records, indent=2)
+        attempts = len(SAVE_RETRY_DELAYS_SECONDS) + 1
+        for attempt in range(attempts):
+            try:
+                tmp.write_text(payload, encoding="utf-8")
+                tmp.replace(self._path)
+                return
+            except PermissionError as e:
+                if attempt < len(SAVE_RETRY_DELAYS_SECONDS):
+                    time.sleep(SAVE_RETRY_DELAYS_SECONDS[attempt])
+                    continue
+                logger.warning(
+                    "Failed to save tracking outbox %s after %d attempts: %s",
+                    self._path,
+                    attempts,
+                    e,
+                )
+                return
+            except OSError as e:
+                logger.warning("Failed to save tracking outbox %s: %s", self._path, e)
+                return
 
     def _compact_sent_records(self) -> None:
         if self._max_sent_records < 0:

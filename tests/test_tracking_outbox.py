@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from lmu_ep_client.api_client import ApiError
@@ -153,3 +155,48 @@ def test_corrupt_outbox_is_preserved_before_starting_fresh(tmp_path):
     assert backups[0].read_text(encoding="utf-8") == "{not json"
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw[0]["body"] == {"type": "pitstop"}
+
+
+def test_save_retries_transient_access_denied_replace(tmp_path, monkeypatch):
+    path = tmp_path / "outbox.json"
+    original_replace = Path.replace
+    attempts = 0
+
+    def flaky_replace(self, target):
+        nonlocal attempts
+        if self.name == "outbox.json.tmp" and Path(target).name == "outbox.json":
+            attempts += 1
+            if attempts == 1:
+                raise PermissionError(5, "Access is denied", str(target))
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    outbox = TrackingOutbox(path)
+
+    outbox.enqueue("/api/tracking/registrations/r1/events", {"type": "pitstop"})
+
+    assert attempts == 2
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert raw[0]["body"] == {"type": "pitstop"}
+
+
+def test_save_logs_persistent_access_denied_replace_without_crashing(
+    tmp_path, monkeypatch, caplog
+):
+    path = tmp_path / "outbox.json"
+    original_replace = Path.replace
+
+    def locked_replace(self, target):
+        if self.name == "outbox.json.tmp" and Path(target).name == "outbox.json":
+            raise PermissionError(5, "Access is denied", str(target))
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", locked_replace)
+    outbox = TrackingOutbox(path)
+
+    with caplog.at_level(logging.WARNING, logger="lmu_ep_client.tracking_outbox"):
+        item = outbox.enqueue("/api/tracking/registrations/r1/events", {"type": "pitstop"})
+
+    assert item.body == {"type": "pitstop"}
+    assert not path.exists()
+    assert "Failed to save tracking outbox" in caplog.text
