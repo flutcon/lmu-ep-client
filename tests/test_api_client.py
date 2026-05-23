@@ -217,6 +217,23 @@ def test_list_registrations_calls_correct_path():
     assert captured["method"] == "GET"
 
 
+def test_list_team_members_calls_correct_path():
+    c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        return _FakeResponse(b'[{"id":"m1","userName":"Alice","lmuDriverName":null}]')
+
+    with patch("lmu_ep_client.api_client.urllib_request.urlopen", side_effect=fake_urlopen):
+        result = c.list_team_members("reg-uuid")
+
+    assert result == [{"id": "m1", "userName": "Alice", "lmuDriverName": None}]
+    assert captured["url"] == "https://lmu-ep.vercel.app/api/tracking/registrations/reg-uuid/team-members"
+    assert captured["method"] == "GET"
+
+
 def test_create_session_posts_to_correct_path():
     c = TrackingClient(api_url="https://lmu-ep.vercel.app", api_key="k")
     captured = {}

@@ -239,11 +239,15 @@ empty object and `repair_flag` is omitted.
 
 ## Building the executable
 
-Requires PyInstaller (`pip install pyinstaller` or install dev dependencies):
+Install runtime + dev dependencies into the *same* environment PyInstaller
+runs from — otherwise the bundle will be missing third-party packages like
+`questionary` and fail at startup with `ModuleNotFoundError`. The simplest
+recipe is a project-local venv:
 
 ```
-pip install -e ".[dev]"
-pyinstaller lmu-ep-client.spec --noconfirm
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\pyinstaller.exe lmu-ep-client.spec --noconfirm
 ```
 
 Output: `dist/lmu-ep-client.exe` — single-file executable, no Python install required on the target machine.

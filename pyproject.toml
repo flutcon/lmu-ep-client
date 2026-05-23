@@ -7,6 +7,9 @@ name = "lmu-ep-client"
 version = "0.1.0"
 description = "LMU Endurance Protocol Client — stint activity logger"
 requires-python = ">=3.10"
+dependencies = [
+    "questionary>=2.0",
+]
 
 [project.scripts]
 lmu-ep-client = "lmu_ep_client.cli:main"

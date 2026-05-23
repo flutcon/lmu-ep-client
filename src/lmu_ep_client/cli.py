@@ -3,10 +3,18 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import sys
 import tomllib
 from pathlib import Path
 
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
+from lmu_ep_client.interactive import (
+    InteractiveAbort,
+    is_tty,
+    select_mode,
+    select_registration,
+    select_team_member,
+)
 from lmu_ep_client.poller import _decode, run
 from pyLMUSharedMemory import lmu_data
 
@@ -243,16 +251,63 @@ def main() -> None:
         _list_registrations(TrackingClient(api_url=args.api_url, api_key=api_key))
         return
 
-    if args.api_key is not None and not args.registration_id:
-        parser.error("--api-key requires --registration-id (use --list-registrations to find one)")
-    if args.registration_id and not api_key:
-        parser.error(f"--registration-id requires an API key (--api-key, {ENV_API_KEY}, or config)")
-    if args.practice and not args.registration_id:
-        parser.error("--practice requires --registration-id")
-    if args.practice and not args.practice_team_member_id:
-        parser.error("--practice requires --practice-team-member-id")
     if args.practice_team_member_id and not args.practice:
         parser.error("--practice-team-member-id requires --practice")
+    if args.registration_id and not api_key:
+        parser.error(f"--registration-id requires an API key (--api-key, {ENV_API_KEY}, or config)")
+
+    registration_id = args.registration_id
+    practice = args.practice
+    practice_team_member_id = args.practice_team_member_id
+
+    # Interactive selection is only triggered by EXPLICIT --api-key on the
+    # command line. An API key sourced from env or config without
+    # --registration-id continues to fall through to file-only logging, as
+    # documented in the README — important for scheduled / redirected runs
+    # where there is no TTY.
+    explicit_api_key = args.api_key is not None
+    client: TrackingClient | None = None
+
+    try:
+        if explicit_api_key and not registration_id:
+            if not is_tty():
+                parser.error(
+                    "--api-key without --registration-id requires a TTY for interactive selection. "
+                    "Pass --registration-id (use --list-registrations to find one)."
+                )
+            client = TrackingClient(api_url=args.api_url, api_key=api_key)
+            try:
+                regs = client.list_registrations()
+            except ApiError as e:
+                parser.error(f"Failed to list registrations: {e}")
+            reg = select_registration(regs)
+            registration_id = reg["id"]
+            print(f"Selected registration: {reg.get('eventTitle') or registration_id}")
+            if not args.practice:
+                practice = select_mode() == "practice"
+
+        if api_key and registration_id and practice and not practice_team_member_id:
+            if not is_tty():
+                parser.error(
+                    "--practice without --practice-team-member-id requires a TTY for interactive selection."
+                )
+            if client is None:
+                client = TrackingClient(api_url=args.api_url, api_key=api_key)
+            try:
+                members = client.list_team_members(registration_id)
+            except ApiError as e:
+                parser.error(f"Failed to list team members: {e}")
+            member = select_team_member(members)
+            practice_team_member_id = member["id"]
+            print(f"Selected driver: {member.get('userName') or practice_team_member_id}")
+    except InteractiveAbort as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+    if practice and not registration_id:
+        parser.error("--practice requires --registration-id")
+    if practice and not practice_team_member_id:
+        parser.error("--practice requires --practice-team-member-id")
 
     run(
         output_dir=args.output_dir,
@@ -260,9 +315,9 @@ def main() -> None:
         driver_name=args.driver,
         slot_id=args.slot,
         api_url=args.api_url,
-        api_key=api_key if args.registration_id else None,
-        registration_id=args.registration_id,
-        practice_team_member_id=args.practice_team_member_id if args.practice else None,
+        api_key=api_key if registration_id else None,
+        registration_id=registration_id,
+        practice_team_member_id=practice_team_member_id if practice else None,
     )
 
 

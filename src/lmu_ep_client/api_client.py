@@ -128,6 +128,9 @@ class TrackingClient:
     def list_registrations(self) -> list[dict]:
         return self.get("/api/tracking/registrations")
 
+    def list_team_members(self, registration_id: str) -> list[dict]:
+        return self.get(f"/api/tracking/registrations/{registration_id}/team-members")
+
     def create_session(self, registration_id: str) -> dict:
         return self.post(f"/api/tracking/registrations/{registration_id}/session")
 
