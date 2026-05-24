@@ -214,6 +214,53 @@ def test_pit_entered_uses_provided_occurred_at():
     assert body == {"type": "pit_entered", "occurredAt": "2026-05-11T10:00:00Z"}
 
 
+def test_event_bodies_include_et_seconds_when_provided():
+    """etSeconds (mCurrentET) carries the game's session-elapsed time so events
+    from all teammates in the same online session share a common ordering key."""
+    api = MagicMock()
+    pub = _make(api)
+
+    pub.driver_started("Alex S.", et_seconds=12.5)
+    pub.driver_stopped("Alex S.", et_seconds=99.25)
+    pub.pit_entered(et_seconds=200.0)
+    pub.pit_at_box(et_seconds=210.0)
+    pub.pit_departed(et_seconds=240.0)
+    pub.pit_exited(et_seconds=245.0)
+    pub.lap_completed(
+        lap_time_seconds=124.318,
+        tyre_wear={"fl": 92.4, "fr": 91.7, "rl": 87.0, "rr": 86.5},
+        energy_pct=73.2,
+        fuel_litres=48.5,
+        team_member_id="m1",
+        et_seconds=370.0,
+    )
+
+    bodies = _post_bodies(api)
+    assert [body["etSeconds"] for body in bodies] == [12.5, 99.25, 200.0, 210.0, 240.0, 245.0, 370.0]
+
+
+def test_pitstop_with_swap_stamps_et_seconds_on_both_events():
+    api = MagicMock()
+    pub = _make(api)
+    pub.pitstop(prev_driver="Alex S.", new_driver="Jin K.", meta={}, et_seconds=555.5)
+
+    bodies = _post_bodies(api)
+    assert len(bodies) == 2
+    assert bodies[0]["type"] == "pitstop"
+    assert bodies[0]["etSeconds"] == 555.5
+    assert bodies[1]["type"] == "driver_started"
+    assert bodies[1]["etSeconds"] == 555.5
+
+
+def test_event_bodies_omit_et_seconds_when_absent():
+    api = MagicMock()
+    pub = _make(api)
+    pub.pit_at_box()
+
+    _, body = _last_post(api)
+    assert "etSeconds" not in body
+
+
 def test_pit_entered_defaults_occurred_at_to_now():
     api = MagicMock()
     pub = _make(api)

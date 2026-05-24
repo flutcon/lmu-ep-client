@@ -270,9 +270,9 @@ def test_tracking_api_sink_ends_session_on_normal_session_end():
     publisher = MagicMock()
     sink = TrackingApiSink(publisher)
 
-    sink.on_events({"session_end"}, _tick(driver="Alex", finish_status=2), SimpleNamespace())
+    sink.on_events({"session_end"}, _tick(driver="Alex", finish_status=2, elapsed=42.5), SimpleNamespace())
 
-    publisher.driver_stopped.assert_called_once_with("Alex", meta={"finish_status": "dnf"})
+    publisher.driver_stopped.assert_called_once_with("Alex", meta={"finish_status": "dnf"}, et_seconds=42.5)
     publisher.end_session.assert_called_once_with()
 
 
@@ -312,8 +312,8 @@ def test_tracking_api_sink_attaches_local_snapshot_to_box_and_departure_events()
             "RR": 0.8235,
         },
     }
-    publisher.pit_at_box.assert_called_once_with(meta=expected_meta)
-    publisher.pit_departed.assert_called_once_with(meta=expected_meta)
+    publisher.pit_at_box.assert_called_once_with(meta=expected_meta, et_seconds=1.0)
+    publisher.pit_departed.assert_called_once_with(meta=expected_meta, et_seconds=1.0)
 
 
 def test_tracking_api_sink_omits_snapshot_when_remote_driver_controls_car():
@@ -323,8 +323,8 @@ def test_tracking_api_sink_omits_snapshot_when_remote_driver_controls_car():
 
     sink.on_events({"pit_at_box", "pit_departed"}, tick, SimpleNamespace())
 
-    publisher.pit_at_box.assert_called_once_with(meta=None)
-    publisher.pit_departed.assert_called_once_with(meta=None)
+    publisher.pit_at_box.assert_called_once_with(meta=None, et_seconds=1.0)
+    publisher.pit_departed.assert_called_once_with(meta=None, et_seconds=1.0)
 
 
 def test_tracking_api_sink_emits_lap_completed_with_local_practice_telemetry():
@@ -354,6 +354,7 @@ def test_tracking_api_sink_emits_lap_completed_with_local_practice_telemetry():
         energy_pct=73.23,
         fuel_litres=48.46,
         team_member_id="m1",
+        et_seconds=1.0,
     )
 
 

@@ -147,6 +147,26 @@ The client publishes these pit-related API events:
 | `pit_exited` | Car crosses back onto the track |
 | `pitstop` | Rich pit summary emitted at pit exit |
 
+#### Game-time ordering (`etSeconds`)
+
+Every event body includes an `etSeconds` field sourced from LMU's
+`mCurrentET` (session-elapsed seconds at the moment the event fired).
+Because `mCurrentET` is synchronized across all clients in the same
+online session, two teammates observing the same moment publish the same
+`etSeconds` — giving the server an authoritative ordering key independent
+of per-client wall-clock skew.
+
+`occurredAt` remains the wall-clock time and is still used by the server
+for display; `etSeconds` should be preferred for dedup/alignment of
+events received from multiple clients. The field is omitted when no
+session tick is available (pre-/post-session housekeeping).
+
+For `pit_entered`, `etSeconds` is captured at the actual pit-lane
+crossing tick (not at the deferred emit), matching the wall-clock
+backdating already done for `occurredAt`. The `pitstop` event and its
+follow-up swap `driver_started` carry the same `etSeconds` so they sort
+together.
+
 When the local client is the current driver, `pit_at_box` and `pit_departed`
 carry a live telemetry snapshot in `meta`:
 

@@ -70,31 +70,46 @@ class TrackingPublisher:
         event_type: str,
         occurred_at: str | None,
         meta: dict[str, Any] | None = None,
+        et_seconds: float | None = None,
     ) -> None:
         body: dict[str, Any] = {"type": event_type, "occurredAt": occurred_at or _now_iso()}
+        if et_seconds is not None:
+            body["etSeconds"] = et_seconds
         if meta:
             body["meta"] = meta
         self._post_event(body)
 
     def pit_entered(
-        self, occurred_at: str | None = None, meta: dict[str, Any] | None = None
+        self,
+        occurred_at: str | None = None,
+        meta: dict[str, Any] | None = None,
+        et_seconds: float | None = None,
     ) -> None:
-        self._post_phase("pit_entered", occurred_at, meta)
+        self._post_phase("pit_entered", occurred_at, meta, et_seconds)
 
     def pit_at_box(
-        self, occurred_at: str | None = None, meta: dict[str, Any] | None = None
+        self,
+        occurred_at: str | None = None,
+        meta: dict[str, Any] | None = None,
+        et_seconds: float | None = None,
     ) -> None:
-        self._post_phase("pit_at_box", occurred_at, meta)
+        self._post_phase("pit_at_box", occurred_at, meta, et_seconds)
 
     def pit_departed(
-        self, occurred_at: str | None = None, meta: dict[str, Any] | None = None
+        self,
+        occurred_at: str | None = None,
+        meta: dict[str, Any] | None = None,
+        et_seconds: float | None = None,
     ) -> None:
-        self._post_phase("pit_departed", occurred_at, meta)
+        self._post_phase("pit_departed", occurred_at, meta, et_seconds)
 
     def pit_exited(
-        self, occurred_at: str | None = None, meta: dict[str, Any] | None = None
+        self,
+        occurred_at: str | None = None,
+        meta: dict[str, Any] | None = None,
+        et_seconds: float | None = None,
     ) -> None:
-        self._post_phase("pit_exited", occurred_at, meta)
+        self._post_phase("pit_exited", occurred_at, meta, et_seconds)
 
     def _resolve(self, lmu_driver_name: str | None) -> str | None:
         if not lmu_driver_name:
@@ -111,25 +126,35 @@ class TrackingPublisher:
         return member_id
 
     def driver_started(
-        self, lmu_driver_name: str, meta: dict[str, Any] | None = None
+        self,
+        lmu_driver_name: str,
+        meta: dict[str, Any] | None = None,
+        et_seconds: float | None = None,
     ) -> None:
         body: dict[str, Any] = {
             "type": "driver_started",
             "occurredAt": _now_iso(),
             "teamMemberId": self._resolve(lmu_driver_name),
         }
+        if et_seconds is not None:
+            body["etSeconds"] = et_seconds
         if meta:
             body["meta"] = meta
         self._post_event(body)
 
     def driver_stopped(
-        self, lmu_driver_name: str, meta: dict[str, Any] | None = None
+        self,
+        lmu_driver_name: str,
+        meta: dict[str, Any] | None = None,
+        et_seconds: float | None = None,
     ) -> None:
         body: dict[str, Any] = {
             "type": "driver_stopped",
             "occurredAt": _now_iso(),
             "teamMemberId": self._resolve(lmu_driver_name),
         }
+        if et_seconds is not None:
+            body["etSeconds"] = et_seconds
         if meta:
             body["meta"] = meta
         self._post_event(body)
@@ -144,6 +169,7 @@ class TrackingPublisher:
         energy_pct: float | None,
         fuel_litres: float | None,
         team_member_id: str | None = None,
+        et_seconds: float | None = None,
     ) -> None:
         body: dict[str, Any] = {
             "type": "lap_completed",
@@ -156,6 +182,8 @@ class TrackingPublisher:
                 "fuelLitres": fuel_litres,
             },
         }
+        if et_seconds is not None:
+            body["etSeconds"] = et_seconds
         self._post_event(body)
 
     def pitstop(
@@ -164,6 +192,7 @@ class TrackingPublisher:
         new_driver: str | None,
         meta: dict[str, Any] | None = None,
         started_meta: dict[str, Any] | None = None,
+        et_seconds: float | None = None,
     ) -> None:
         """Emit a pitstop event, plus a swap event if the driver changed.
 
@@ -179,6 +208,8 @@ class TrackingPublisher:
             "type": "pitstop",
             "occurredAt": _now_iso(),
         }
+        if et_seconds is not None:
+            body["etSeconds"] = et_seconds
         if meta:
             body["meta"] = meta
         self._post_event(body)
@@ -195,6 +226,8 @@ class TrackingPublisher:
                 "teamMemberId": to_id,
                 "swapFromMemberId": from_id,
             }
+            if et_seconds is not None:
+                swap_body["etSeconds"] = et_seconds
             if started_meta:
                 swap_body["meta"] = started_meta
             self._post_event(swap_body)

@@ -340,11 +340,12 @@ class TrackingApiSink:
     def __init__(self, publisher: TrackingPublisher) -> None:
         self._publisher = publisher
         self._pit_entered_at: str | None = None
+        self._pit_entered_et: float | None = None
         self._last_lap_completed_elapsed: float | None = None
 
     def on_events(self, events: set[str], tick: TickData, detector: StintDetector) -> None:
         if "session_start" in events:
-            self._publisher.driver_started(tick.driver, meta=_started_meta(tick))
+            self._publisher.driver_started(tick.driver, meta=_started_meta(tick), et_seconds=tick.elapsed)
             self._last_lap_completed_elapsed = tick.elapsed
 
         if "lap_completed" in events and self._publisher.is_practice:
@@ -357,36 +358,45 @@ class TrackingApiSink:
                 self._publisher.lap_completed(
                     **payload,
                     team_member_id=self._publisher.resolve_driver(tick.driver),
+                    et_seconds=tick.elapsed,
                 )
 
         if "pit_enter" in events:
             self._pit_entered_at = self._publisher.now_iso()
+            self._pit_entered_et = tick.elapsed
 
         if "pit_at_box" in events:
             if self._pit_entered_at:
-                self._publisher.pit_entered(occurred_at=self._pit_entered_at)
+                self._publisher.pit_entered(
+                    occurred_at=self._pit_entered_at,
+                    et_seconds=self._pit_entered_et,
+                )
                 self._pit_entered_at = None
-            self._publisher.pit_at_box(meta=_live_pit_snapshot_meta(tick))
+                self._pit_entered_et = None
+            self._publisher.pit_at_box(meta=_live_pit_snapshot_meta(tick), et_seconds=tick.elapsed)
 
         if "pit_departed" in events:
-            self._publisher.pit_departed(meta=_live_pit_snapshot_meta(tick))
+            self._publisher.pit_departed(meta=_live_pit_snapshot_meta(tick), et_seconds=tick.elapsed)
 
         if "pit_exit" in events:
             stint, _pit, pit_dict, _msg = _pit_exit_details(detector, tick)
-            self._publisher.pit_exited()
+            self._publisher.pit_exited(et_seconds=tick.elapsed)
             self._publisher.pitstop(
                 prev_driver=stint.driver,
                 new_driver=tick.driver,
                 meta=pit_dict,
                 started_meta=_started_meta(tick),
+                et_seconds=tick.elapsed,
             )
             self._pit_entered_at = None
+            self._pit_entered_et = None
 
         if "session_end" in events:
             if tick.driver:
-                self._publisher.driver_stopped(tick.driver, meta=_stopped_meta(tick))
+                self._publisher.driver_stopped(tick.driver, meta=_stopped_meta(tick), et_seconds=tick.elapsed)
             self._publisher.end_session()
             self._pit_entered_at = None
+            self._pit_entered_et = None
             self._last_lap_completed_elapsed = None
 
     def periodic(self, detector: StintDetector) -> None:
