@@ -157,6 +157,13 @@ def load_initial_api_key(config_path: Path | None = None) -> str:
     return _config_api_key(config_path or _default_config_path()) or ""
 
 
+def safe_load_initial_api_key(config_path: Path | None = None) -> tuple[str, str | None]:
+    try:
+        return load_initial_api_key(config_path=config_path), None
+    except (ValueError, OSError) as e:
+        return "", f"Could not read saved API key: {e}"
+
+
 def format_registration_label(reg: dict) -> str:
     starts = reg.get("startsAt") or "no start time"
     track = reg.get("trackKey") or "?"
@@ -305,9 +312,10 @@ def _launcher_window_class(qt: dict):
 
             api_group = qt["QGroupBox"]("API")
             api_layout = qt["QVBoxLayout"](api_group)
+            initial_api_key, initial_api_key_error = safe_load_initial_api_key()
             self.api_key_edit = qt["QLineEdit"]()
             self.api_key_edit.setEchoMode(qt["QLineEdit"].Password)
-            self.api_key_edit.setText(load_initial_api_key())
+            self.api_key_edit.setText(initial_api_key)
             self.save_key_button = qt["QPushButton"]("Save key")
             self.refresh_button = qt["QPushButton"]("Refresh registrations")
             api_buttons = qt["QHBoxLayout"]()
@@ -384,6 +392,9 @@ def _launcher_window_class(qt: dict):
             self.start_button.clicked.connect(self.start_client)
             self.stop_button.clicked.connect(self.stop_client)
             self.update_status()
+            if initial_api_key_error:
+                self.status_label.setText(initial_api_key_error)
+                self.append_log(initial_api_key_error)
 
         def append_log(self, message: str) -> None:
             self.log_edit.append(message)

@@ -160,6 +160,18 @@ def test_load_initial_api_key_uses_config(monkeypatch, tmp_path):
     assert gui.load_initial_api_key(config_path=config_path) == "config-key"
 
 
+def test_safe_load_initial_api_key_recovers_from_invalid_config(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("[tracking\n", encoding="utf-8")
+    monkeypatch.delenv("LMU_EP_API_KEY", raising=False)
+
+    api_key, error_message = gui.safe_load_initial_api_key(config_path=config_path)
+
+    assert api_key == ""
+    assert error_message is not None
+    assert error_message.startswith("Could not read saved API key: Invalid config file")
+
+
 def test_format_registration_label():
     reg = {
         "id": "reg-1",
