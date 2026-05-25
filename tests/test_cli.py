@@ -1,12 +1,49 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from lmu_ep_client import cli
 
 
 def _set_argv(monkeypatch, *args: str) -> None:
     monkeypatch.setattr(sys, "argv", ["lmu-ep-client", *args])
+
+
+def test_no_args_launches_gui(monkeypatch):
+    launched = {"count": 0}
+
+    def fake_launch_gui():
+        launched["count"] += 1
+
+    monkeypatch.setattr(cli, "_launch_gui", fake_launch_gui)
+    _set_argv(monkeypatch)
+
+    cli.main()
+
+    assert launched["count"] == 1
+
+
+def test_args_preserve_cli_path(monkeypatch):
+    seen = {}
+    launched = {"count": 0}
+
+    def fake_launch_gui():
+        launched["count"] += 1
+
+    def fake_run(**kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.delenv("LMU_EP_API_KEY", raising=False)
+    monkeypatch.setattr(cli, "_launch_gui", fake_launch_gui)
+    monkeypatch.setattr(cli, "run", fake_run)
+    _set_argv(monkeypatch, "--config", str(Path("missing.toml")))
+
+    cli.main()
+
+    assert launched["count"] == 0
+    assert seen["api_key"] is None
+    assert seen["registration_id"] is None
 
 
 def test_list_registrations_uses_env_api_key(monkeypatch):
@@ -160,7 +197,7 @@ def test_cli_interactive_picks_practice_team_member(monkeypatch):
     assert seen["practice_team_member_id"] == "m2"
 
 
-def test_env_api_key_without_registration_id_falls_through_to_file_only(monkeypatch):
+def test_env_api_key_without_registration_id_falls_through_to_file_only(monkeypatch, tmp_path):
     """A configured env/config API key without --registration-id must NOT trigger
     interactive prompts — scheduled and redirected runs depend on the documented
     file-only logging fallback."""
@@ -181,7 +218,7 @@ def test_env_api_key_without_registration_id_falls_through_to_file_only(monkeypa
         "lmu_ep_client.api_client.TrackingClient.list_registrations", fake_list_registrations
     )
     monkeypatch.setattr(cli, "run", fake_run)
-    _set_argv(monkeypatch)
+    _set_argv(monkeypatch, "--config", str(tmp_path / "missing.toml"))
 
     cli.main()
 

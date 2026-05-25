@@ -70,6 +70,12 @@ def _resolve_api_key(cli_api_key: str | None, config_path: Path | None = None) -
     return _config_api_key(config_path or _default_config_path())
 
 
+def _launch_gui() -> None:
+    from lmu_ep_client.gui import launch_gui
+
+    launch_gui()
+
+
 def _print_session_info(info) -> None:
     """Print the session/vehicle table. Kept separate from open/close so its
     ctypes locals (scoring_info, v) fall out of scope before info.close() — the
@@ -142,6 +148,10 @@ def _list_registrations(api: TrackingClient) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) == 1:
+        _launch_gui()
+        return
+
     parser = argparse.ArgumentParser(
         prog="lmu-ep-client",
         description="LMU Endurance Protocol Client — stint activity logger",
