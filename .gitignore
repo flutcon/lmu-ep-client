@@ -9,3 +9,4 @@ vendor/pyLMUSharedMemory/.git
 .claude/
 =*
 .worktrees/
+.pytest-tmp*/
