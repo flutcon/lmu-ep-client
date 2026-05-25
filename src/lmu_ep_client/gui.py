@@ -478,6 +478,7 @@ def _launcher_window_class(qt: dict):
         def mode_changed(self, *args) -> None:
             if self.practice_radio.isChecked():
                 self.load_team_members()
+                return
             else:
                 self.member_combo.clear()
                 self.member_combo.addItem("Race mode does not need a practice driver", None)

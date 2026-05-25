@@ -24,7 +24,7 @@ lmu-ep-client.exe --api-key lmu_... --registration-id <uuid>
 lmu-ep-client.exe --debug
 ```
 
-Stop with `Ctrl+C`. The tool writes a final flush on shutdown.
+In the GUI, use the Stop button or close the window. In CLI mode, stop with `Ctrl+C`. The tool writes a final flush on shutdown.
 
 ### From source
 
