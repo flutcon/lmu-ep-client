@@ -62,12 +62,16 @@ def save_api_key(api_key: str, config_path: Path | None = None) -> None:
 
 
 def _is_section_header(line: str) -> bool:
-    stripped = line.strip()
+    stripped = _strip_toml_line_comment(line).strip()
     return stripped.startswith("[") and stripped.endswith("]")
 
 
 def _is_tracking_section_header(line: str) -> bool:
-    return line.strip() == "[tracking]"
+    return _strip_toml_line_comment(line).strip() == "[tracking]"
+
+
+def _strip_toml_line_comment(line: str) -> str:
+    return line.split("#", 1)[0]
 
 
 def _is_api_key_assignment(line: str) -> bool:

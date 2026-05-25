@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 from lmu_ep_client import gui
@@ -73,6 +74,43 @@ def test_save_api_key_rejects_control_characters(tmp_path):
         assert "API key cannot contain control characters" in str(e)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_save_api_key_updates_commented_tracking_section(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[tracking] # API settings\napi_key = "old"\nenabled = true\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("LMU_EP_API_KEY", raising=False)
+
+    gui.save_api_key("new", config_path=config_path)
+
+    saved = config_path.read_text(encoding="utf-8")
+    assert saved == '[tracking] # API settings\napi_key = "new"\nenabled = true\n'
+    assert saved.count("[tracking]") == 1
+    assert tomllib.loads(saved)["tracking"]["api_key"] == "new"
+    assert gui.load_initial_api_key(config_path=config_path) == "new"
+
+
+def test_save_api_key_inserts_before_commented_next_section(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[tracking]\nenabled = true\n[window] # UI settings\nwidth = 1280\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("LMU_EP_API_KEY", raising=False)
+
+    gui.save_api_key("new", config_path=config_path)
+
+    saved = config_path.read_text(encoding="utf-8")
+    assert saved == (
+        '[tracking]\nenabled = true\napi_key = "new"\n[window] # UI settings\nwidth = 1280\n'
+    )
+    parsed = tomllib.loads(saved)
+    assert parsed["tracking"]["api_key"] == "new"
+    assert "api_key" not in parsed["window"]
+    assert gui.load_initial_api_key(config_path=config_path) == "new"
 
 
 def test_load_initial_api_key_prefers_env(monkeypatch, tmp_path):
