@@ -12,10 +12,11 @@ Stint activity logger for Le Mans Ultimate. Reads shared memory and writes a str
 
 ### Executable (recommended)
 
-Download or build `lmu-ep-client.exe` (see below). Start it before or during a session:
+Download or build `lmu-ep-client.exe` (see below). Double-click it or run it with no arguments to open the GUI launcher. The GUI lets you save your API key, select a registration, select Race or Practice mode, and start the client.
+
+Command-line usage is still available whenever you pass arguments:
 
 ```
-lmu-ep-client.exe
 lmu-ep-client.exe --output-dir C:\path\to\sessions
 lmu-ep-client.exe --registration-id <uuid>
 lmu-ep-client.exe --registration-id <uuid> --practice --practice-team-member-id <uuid>
@@ -23,7 +24,7 @@ lmu-ep-client.exe --api-key lmu_... --registration-id <uuid>
 lmu-ep-client.exe --debug
 ```
 
-Stop with `Ctrl+C`. The tool writes a final flush on shutdown.
+In the GUI, use the Stop button or close the window. In CLI mode, stop with `Ctrl+C`. The tool writes a final flush on shutdown.
 
 ### From source
 

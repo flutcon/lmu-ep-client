@@ -9,6 +9,7 @@ description = "LMU Endurance Protocol Client — stint activity logger"
 requires-python = ">=3.10"
 dependencies = [
     "questionary>=2.0",
+    "PySide6>=6.7",
 ]
 
 [project.scripts]
