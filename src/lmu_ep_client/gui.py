@@ -1,14 +1,61 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from lmu_ep_client.api_client import DEFAULT_API_URL
+from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.cli import ENV_API_KEY, _config_api_key, _default_config_path
 from lmu_ep_client.poller import run
+
+
+def _qt():
+    from PySide6.QtCore import QObject, QThread, Signal
+    from PySide6.QtWidgets import (
+        QApplication,
+        QCheckBox,
+        QComboBox,
+        QFileDialog,
+        QFormLayout,
+        QGridLayout,
+        QGroupBox,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QMainWindow,
+        QMessageBox,
+        QPushButton,
+        QRadioButton,
+        QTextEdit,
+        QVBoxLayout,
+        QWidget,
+    )
+
+    return {
+        "QObject": QObject,
+        "QThread": QThread,
+        "Signal": Signal,
+        "QApplication": QApplication,
+        "QCheckBox": QCheckBox,
+        "QComboBox": QComboBox,
+        "QFileDialog": QFileDialog,
+        "QFormLayout": QFormLayout,
+        "QGridLayout": QGridLayout,
+        "QGroupBox": QGroupBox,
+        "QHBoxLayout": QHBoxLayout,
+        "QLabel": QLabel,
+        "QLineEdit": QLineEdit,
+        "QMainWindow": QMainWindow,
+        "QMessageBox": QMessageBox,
+        "QPushButton": QPushButton,
+        "QRadioButton": QRadioButton,
+        "QTextEdit": QTextEdit,
+        "QVBoxLayout": QVBoxLayout,
+        "QWidget": QWidget,
+    }
 
 
 @dataclass
@@ -187,5 +234,285 @@ class RunWorker:
         self.stop_event.set()
 
 
+def _make_qt_worker(qt: dict, worker: RunWorker):
+    class QtRunWorker(qt["QObject"]):
+        finished = qt["Signal"]()
+        failed = qt["Signal"](str)
+        message = qt["Signal"](str)
+
+        def run(self) -> None:
+            worker.log = self.message.emit
+            try:
+                worker.run()
+            except Exception as e:
+                logging.getLogger(__name__).exception("GUI worker failed")
+                self.failed.emit(str(e))
+            finally:
+                self.finished.emit()
+
+        def stop(self) -> None:
+            worker.stop()
+
+    return QtRunWorker()
+
+
+def _launcher_window_class(qt: dict):
+    class LauncherWindow(qt["QMainWindow"]):
+        def __init__(self) -> None:
+            super().__init__()
+            self.setWindowTitle("LMU EP Client")
+            self.resize(760, 560)
+            self.registrations: list[dict] = []
+            self.team_members: list[dict] = []
+            self.thread = None
+            self.worker = None
+            self.qt_worker = None
+
+            root = qt["QWidget"]()
+            layout = qt["QVBoxLayout"](root)
+            grid = qt["QGridLayout"]()
+            layout.addLayout(grid)
+
+            api_group = qt["QGroupBox"]("API")
+            api_layout = qt["QVBoxLayout"](api_group)
+            self.api_key_edit = qt["QLineEdit"]()
+            self.api_key_edit.setEchoMode(qt["QLineEdit"].Password)
+            self.api_key_edit.setText(load_initial_api_key())
+            self.save_key_button = qt["QPushButton"]("Save key")
+            self.refresh_button = qt["QPushButton"]("Refresh registrations")
+            api_buttons = qt["QHBoxLayout"]()
+            api_buttons.addWidget(self.save_key_button)
+            api_buttons.addWidget(self.refresh_button)
+            api_layout.addWidget(self.api_key_edit)
+            api_layout.addLayout(api_buttons)
+            grid.addWidget(api_group, 0, 0)
+
+            event_group = qt["QGroupBox"]("Event")
+            event_layout = qt["QVBoxLayout"](event_group)
+            self.registration_combo = qt["QComboBox"]()
+            self.registration_combo.addItem("Refresh registrations to choose an event", None)
+            event_layout.addWidget(self.registration_combo)
+            grid.addWidget(event_group, 1, 0)
+
+            mode_group = qt["QGroupBox"]("Mode")
+            mode_layout = qt["QHBoxLayout"](mode_group)
+            self.race_radio = qt["QRadioButton"]("Race")
+            self.practice_radio = qt["QRadioButton"]("Practice")
+            self.race_radio.setChecked(True)
+            mode_layout.addWidget(self.race_radio)
+            mode_layout.addWidget(self.practice_radio)
+            grid.addWidget(mode_group, 2, 0)
+
+            member_group = qt["QGroupBox"]("Practice driver")
+            member_layout = qt["QVBoxLayout"](member_group)
+            self.member_combo = qt["QComboBox"]()
+            self.member_combo.addItem("Select Practice mode to load drivers", None)
+            member_layout.addWidget(self.member_combo)
+            grid.addWidget(member_group, 3, 0)
+
+            advanced_group = qt["QGroupBox"]("Advanced")
+            advanced_layout = qt["QFormLayout"](advanced_group)
+            self.output_dir_edit = qt["QLineEdit"]()
+            self.output_dir_button = qt["QPushButton"]("Browse")
+            output_row = qt["QHBoxLayout"]()
+            output_row.addWidget(self.output_dir_edit)
+            output_row.addWidget(self.output_dir_button)
+            self.team_edit = qt["QLineEdit"]()
+            self.driver_edit = qt["QLineEdit"]()
+            self.slot_edit = qt["QLineEdit"]()
+            self.debug_check = qt["QCheckBox"]("Enable debug logging")
+            advanced_layout.addRow("Output directory", output_row)
+            advanced_layout.addRow("Team", self.team_edit)
+            advanced_layout.addRow("Driver", self.driver_edit)
+            advanced_layout.addRow("Slot ID", self.slot_edit)
+            advanced_layout.addRow("", self.debug_check)
+            grid.addWidget(advanced_group, 0, 1, 3, 1)
+
+            status_group = qt["QGroupBox"]("Status")
+            status_layout = qt["QVBoxLayout"](status_group)
+            self.status_label = qt["QLabel"]("Ready.")
+            self.log_edit = qt["QTextEdit"]()
+            self.log_edit.setReadOnly(True)
+            self.start_button = qt["QPushButton"]("Start client")
+            self.stop_button = qt["QPushButton"]("Stop")
+            self.stop_button.setEnabled(False)
+            action_row = qt["QHBoxLayout"]()
+            action_row.addWidget(self.start_button)
+            action_row.addWidget(self.stop_button)
+            status_layout.addWidget(self.status_label)
+            status_layout.addWidget(self.log_edit)
+            status_layout.addLayout(action_row)
+            grid.addWidget(status_group, 3, 1)
+
+            self.setCentralWidget(root)
+
+            self.save_key_button.clicked.connect(self.save_key)
+            self.refresh_button.clicked.connect(self.refresh_registrations)
+            self.registration_combo.currentIndexChanged.connect(self.registration_changed)
+            self.practice_radio.toggled.connect(self.mode_changed)
+            self.output_dir_button.clicked.connect(self.pick_output_dir)
+            self.start_button.clicked.connect(self.start_client)
+            self.stop_button.clicked.connect(self.stop_client)
+            self.update_status()
+
+        def append_log(self, message: str) -> None:
+            self.log_edit.append(message)
+
+        def selected_registration(self) -> dict | None:
+            return self.registration_combo.currentData()
+
+        def selected_member(self) -> dict | None:
+            return self.member_combo.currentData()
+
+        def current_config(self) -> LaunchConfig:
+            reg = self.selected_registration()
+            member = self.selected_member()
+            return LaunchConfig(
+                api_key=self.api_key_edit.text(),
+                registration_id=reg.get("id") if reg else None,
+                mode="practice" if self.practice_radio.isChecked() else "race",
+                practice_team_member_id=member.get("id") if member else None,
+                output_dir_text=self.output_dir_edit.text(),
+                team_name=self.team_edit.text(),
+                driver_name=self.driver_edit.text(),
+                slot_id_text=self.slot_edit.text(),
+                debug=self.debug_check.isChecked(),
+            )
+
+        def save_key(self) -> None:
+            try:
+                save_api_key(self.api_key_edit.text())
+            except ValueError as e:
+                self.status_label.setText(str(e))
+                return
+            except OSError as e:
+                self.status_label.setText(f"Could not save API key: {e}")
+                return
+            self.status_label.setText("API key saved.")
+
+        def refresh_registrations(self) -> None:
+            api_key = self.api_key_edit.text().strip()
+            if not api_key:
+                self.status_label.setText("Enter an API key before refreshing registrations.")
+                return
+            try:
+                regs = TrackingClient(DEFAULT_API_URL, api_key).list_registrations()
+            except (ApiError, ValueError) as e:
+                self.status_label.setText(f"Failed to load registrations: {e}")
+                return
+            self.registrations = regs
+            self.registration_combo.clear()
+            if not regs:
+                self.registration_combo.addItem("No registrations found", None)
+                self.status_label.setText("No registrations found.")
+                return
+            for reg in regs:
+                self.registration_combo.addItem(format_registration_label(reg), reg)
+            self.status_label.setText(f"{len(regs)} registration(s) loaded.")
+            self.mode_changed()
+
+        def registration_changed(self) -> None:
+            self.mode_changed()
+
+        def mode_changed(self) -> None:
+            if self.practice_radio.isChecked():
+                self.load_team_members()
+            else:
+                self.member_combo.clear()
+                self.member_combo.addItem("Race mode does not need a practice driver", None)
+            self.update_status()
+
+        def load_team_members(self) -> None:
+            reg = self.selected_registration()
+            self.member_combo.clear()
+            if not reg:
+                self.member_combo.addItem("Select a registration first", None)
+                return
+            api_key = self.api_key_edit.text().strip()
+            if not api_key:
+                self.member_combo.addItem("Enter an API key first", None)
+                return
+            try:
+                members = TrackingClient(DEFAULT_API_URL, api_key).list_team_members(reg["id"])
+            except (ApiError, ValueError) as e:
+                self.member_combo.addItem("Could not load team members", None)
+                self.status_label.setText(f"Failed to load team members: {e}")
+                return
+            if not members:
+                self.member_combo.addItem("No team members found", None)
+                self.status_label.setText("No team members found for this registration.")
+                return
+            for member in members:
+                self.member_combo.addItem(format_team_member_label(member), member)
+            self.status_label.setText(f"{len(members)} team member(s) loaded.")
+
+        def pick_output_dir(self) -> None:
+            directory = qt["QFileDialog"].getExistingDirectory(self, "Choose output directory")
+            if directory:
+                self.output_dir_edit.setText(directory)
+                self.update_status()
+
+        def update_status(self) -> None:
+            reg = self.selected_registration()
+            member = self.selected_member()
+            parts = [
+                "API key saved or entered." if self.api_key_edit.text().strip() else "API key missing.",
+                f"Registrations loaded: {len(self.registrations)}.",
+                f"Selected registration: {reg.get('id') if reg else 'none'}.",
+                f"Practice driver: {member.get('id') if member else 'none'}.",
+                f"Output: {self.output_dir_edit.text().strip() or './sessions'}.",
+                "Running." if self.thread else "Stopped.",
+            ]
+            self.append_log(" ".join(parts))
+
+        def start_client(self) -> None:
+            config = self.current_config()
+            error = validate_start(config)
+            if error:
+                self.status_label.setText(error)
+                return
+            if config.debug:
+                logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(name)s:%(message)s")
+            kwargs = launch_config_to_run_kwargs(config)
+            self.worker = RunWorker(kwargs)
+            self.qt_worker = _make_qt_worker(qt, self.worker)
+            self.thread = qt["QThread"]()
+            self.qt_worker.moveToThread(self.thread)
+            self.thread.started.connect(self.qt_worker.run)
+            self.qt_worker.message.connect(self.append_log)
+            self.qt_worker.failed.connect(self.status_label.setText)
+            self.qt_worker.finished.connect(self.thread.quit)
+            self.qt_worker.finished.connect(self.client_finished)
+            self.thread.start()
+            self.start_button.setEnabled(False)
+            self.stop_button.setEnabled(True)
+            self.status_label.setText("Client running.")
+
+        def stop_client(self) -> None:
+            if self.qt_worker:
+                self.qt_worker.stop()
+                self.status_label.setText("Stopping client...")
+
+        def client_finished(self) -> None:
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.thread = None
+            self.worker = None
+            self.qt_worker = None
+            self.status_label.setText("Client stopped.")
+
+        def closeEvent(self, event) -> None:
+            if self.worker:
+                self.worker.stop()
+            super().closeEvent(event)
+
+    return LauncherWindow
+
+
 def launch_gui() -> None:
-    raise RuntimeError("GUI launcher is not implemented yet")
+    qt = _qt()
+    app = qt["QApplication"].instance() or qt["QApplication"]([])
+    window_class = _launcher_window_class(qt)
+    window = window_class()
+    window.show()
+    app.exec()
