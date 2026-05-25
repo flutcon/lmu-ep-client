@@ -253,6 +253,9 @@ class _FakeStopEvent:
     def __init__(self):
         self.set_called = False
 
+    def __bool__(self):
+        return False
+
     def set(self):
         self.set_called = True
 
@@ -260,18 +263,40 @@ class _FakeStopEvent:
 def test_run_worker_calls_poller_with_stop_event(monkeypatch):
     calls = {}
     fake_stop = _FakeStopEvent()
+    log = lambda message: None
 
     def fake_run(**kwargs):
         calls.update(kwargs)
 
     monkeypatch.setattr(gui, "run", fake_run)
-    worker = gui.RunWorker({"api_key": "key", "registration_id": "reg-1"}, stop_event=fake_stop)
+    worker = gui.RunWorker(
+        {"api_key": "key", "registration_id": "reg-1"},
+        stop_event=fake_stop,
+        log=log,
+    )
 
     worker.run()
 
     assert calls["api_key"] == "key"
     assert calls["registration_id"] == "reg-1"
     assert calls["stop_event"] is fake_stop
+    assert calls["log"] is log
+
+
+def test_run_worker_copies_kwargs(monkeypatch):
+    calls = {}
+    run_kwargs = {"api_key": "key"}
+
+    def fake_run(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(gui, "run", fake_run)
+    worker = gui.RunWorker(run_kwargs)
+    run_kwargs["api_key"] = "changed"
+
+    worker.run()
+
+    assert calls["api_key"] == "key"
 
 
 def test_run_worker_stop_sets_event():

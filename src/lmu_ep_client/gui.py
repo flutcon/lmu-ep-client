@@ -177,8 +177,8 @@ class RunWorker:
         log: Callable[[str], None] | None = None,
     ) -> None:
         self.kwargs = dict(kwargs)
-        self.stop_event = stop_event or threading.Event()
-        self.log = log or (lambda message: None)
+        self.stop_event = threading.Event() if stop_event is None else stop_event
+        self.log = (lambda message: None) if log is None else log
 
     def run(self) -> None:
         run(**self.kwargs, stop_event=self.stop_event, log=self.log)
