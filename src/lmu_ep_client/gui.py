@@ -402,6 +402,7 @@ def _launcher_window_class(qt: dict):
             if initial_api_key_error:
                 self.status_label.setText(initial_api_key_error)
                 self.append_log(initial_api_key_error)
+            self.append_log("Ready. Save an API key, refresh registrations, choose a mode, then start.")
 
         def append_log(self, message: str) -> None:
             self.log_edit.append(message)
@@ -592,7 +593,7 @@ def _launcher_window_class(qt: dict):
                 f"Output: {self.output_dir_edit.text().strip() or './sessions'}.",
                 "Running." if self.thread else "Stopped.",
             ]
-            self.append_log(" ".join(parts))
+            self.status_label.setText(" ".join(parts))
 
         def start_client(self) -> None:
             config = self.current_config()
