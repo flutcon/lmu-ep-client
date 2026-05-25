@@ -64,6 +64,19 @@ def test_save_api_key_appends_tracking_section_without_clobbering(tmp_path):
     )
 
 
+def test_save_api_key_repairs_malformed_config(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("[tracking\n", encoding="utf-8")
+    monkeypatch.delenv("LMU_EP_API_KEY", raising=False)
+
+    gui.save_api_key("new", config_path=config_path)
+
+    saved = config_path.read_text(encoding="utf-8")
+    assert saved == '[tracking]\napi_key = "new"\n'
+    assert tomllib.loads(saved)["tracking"]["api_key"] == "new"
+    assert gui.load_initial_api_key(config_path=config_path) == "new"
+
+
 def test_save_api_key_rejects_control_characters(tmp_path):
     config_path = tmp_path / "config.toml"
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,6 +87,12 @@ def save_api_key(api_key: str, config_path: Path | None = None) -> None:
         return
 
     text = path.read_text(encoding="utf-8")
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        path.write_text(f"[tracking]\n{assignment}", encoding="utf-8")
+        return
+
     lines = text.splitlines(keepends=True)
     for index, line in enumerate(lines):
         if _is_section_header(line):
