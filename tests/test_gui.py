@@ -25,6 +25,56 @@ def test_save_api_key_rejects_empty(tmp_path):
         raise AssertionError("expected ValueError")
 
 
+def test_save_api_key_preserves_unrelated_config_when_replacing(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'theme = "dark"\n\n[tracking]\nenabled = true\napi_key = "old"\n\n[window]\nwidth = 1280\n',
+        encoding="utf-8",
+    )
+
+    gui.save_api_key("new", config_path=config_path)
+
+    assert config_path.read_text(encoding="utf-8") == (
+        'theme = "dark"\n\n[tracking]\nenabled = true\napi_key = "new"\n\n[window]\nwidth = 1280\n'
+    )
+
+
+def test_save_api_key_preserves_tracking_keys_when_adding_api_key(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '[tracking]\nenabled = true\n\n[window]\nwidth = 1280\n',
+        encoding="utf-8",
+    )
+
+    gui.save_api_key("new", config_path=config_path)
+
+    assert config_path.read_text(encoding="utf-8") == (
+        '[tracking]\nenabled = true\n\napi_key = "new"\n[window]\nwidth = 1280\n'
+    )
+
+
+def test_save_api_key_appends_tracking_section_without_clobbering(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('theme = "dark"\n[window]\nwidth = 1280\n', encoding="utf-8")
+
+    gui.save_api_key("new", config_path=config_path)
+
+    assert config_path.read_text(encoding="utf-8") == (
+        'theme = "dark"\n[window]\nwidth = 1280\n\n[tracking]\napi_key = "new"\n'
+    )
+
+
+def test_save_api_key_rejects_control_characters(tmp_path):
+    config_path = tmp_path / "config.toml"
+
+    try:
+        gui.save_api_key("bad\nkey", config_path=config_path)
+    except ValueError as e:
+        assert "API key cannot contain control characters" in str(e)
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def test_load_initial_api_key_prefers_env(monkeypatch, tmp_path):
     config_path = tmp_path / "config.toml"
     config_path.write_text('[tracking]\napi_key = "config-key"\n', encoding="utf-8")
