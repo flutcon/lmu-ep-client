@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import tomllib
-from pathlib import Path
 
 from lmu_ep_client import gui
 from lmu_ep_client.api_client import DEFAULT_API_URL
@@ -110,6 +109,38 @@ def test_save_api_key_inserts_before_commented_next_section(tmp_path, monkeypatc
     parsed = tomllib.loads(saved)
     assert parsed["tracking"]["api_key"] == "new"
     assert "api_key" not in parsed["window"]
+    assert gui.load_initial_api_key(config_path=config_path) == "new"
+
+
+def test_save_api_key_updates_top_level_api_key(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('api_key = "old"\n', encoding="utf-8")
+    monkeypatch.delenv("LMU_EP_API_KEY", raising=False)
+
+    gui.save_api_key("new", config_path=config_path)
+
+    saved = config_path.read_text(encoding="utf-8")
+    parsed = tomllib.loads(saved)
+    assert saved == 'api_key = "new"\n'
+    assert parsed["api_key"] == "new"
+    assert gui.load_initial_api_key(config_path=config_path) == "new"
+
+
+def test_save_api_key_updates_top_level_api_key_and_preserves_sections(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'theme = "dark"\napi_key = "old"\n\n[window]\nwidth = 1280\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("LMU_EP_API_KEY", raising=False)
+
+    gui.save_api_key("new", config_path=config_path)
+
+    saved = config_path.read_text(encoding="utf-8")
+    parsed = tomllib.loads(saved)
+    assert saved == 'theme = "dark"\napi_key = "new"\n\n[window]\nwidth = 1280\n'
+    assert parsed["api_key"] == "new"
+    assert parsed["window"]["width"] == 1280
     assert gui.load_initial_api_key(config_path=config_path) == "new"
 
 

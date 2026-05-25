@@ -39,6 +39,14 @@ def save_api_key(api_key: str, config_path: Path | None = None) -> None:
 
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        if _is_section_header(line):
+            break
+        if _is_api_key_assignment(line):
+            lines[index] = assignment
+            path.write_text("".join(lines), encoding="utf-8")
+            return
+
     tracking_index = next(
         (index for index, line in enumerate(lines) if _is_tracking_section_header(line)),
         None,
