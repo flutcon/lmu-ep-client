@@ -306,3 +306,62 @@ def test_run_worker_stop_sets_event():
     worker.stop()
 
     assert fake_stop.set_called is True
+
+
+class _FakeSignal:
+    def __init__(self, *args):
+        self.emissions = []
+
+    def emit(self, *args):
+        self.emissions.append(args)
+
+
+class _FakeQObject:
+    def moveToThread(self, thread):
+        self.thread = thread
+
+    def deleteLater(self):
+        self.deleted = True
+
+
+def _fake_qt():
+    return {"QObject": _FakeQObject, "Signal": _FakeSignal}
+
+
+def test_qt_worker_emits_failure_before_finished():
+    class FailingWorker:
+        def run(self):
+            raise RuntimeError("boom")
+
+        def stop(self):
+            pass
+
+    qt_worker = gui._make_qt_worker(_fake_qt(), FailingWorker())
+
+    qt_worker.run()
+
+    assert qt_worker.failed.emissions == [("boom",)]
+    assert qt_worker.finished.emissions == [()]
+
+
+def test_api_worker_emits_loaded_result():
+    qt_worker = gui._make_api_worker(_fake_qt(), lambda: [{"id": "reg-1"}])
+
+    qt_worker.run()
+
+    assert qt_worker.loaded.emissions == [([{"id": "reg-1"}],)]
+    assert qt_worker.failed.emissions == []
+    assert qt_worker.finished.emissions == [()]
+
+
+def test_api_worker_emits_failure_before_finished():
+    def fail():
+        raise ValueError("bad request")
+
+    qt_worker = gui._make_api_worker(_fake_qt(), fail)
+
+    qt_worker.run()
+
+    assert qt_worker.loaded.emissions == []
+    assert qt_worker.failed.emissions == [("bad request",)]
+    assert qt_worker.finished.emissions == [()]

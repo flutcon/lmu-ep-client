@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
+from lmu_ep_client.api_client import DEFAULT_API_URL, TrackingClient
 from lmu_ep_client.cli import ENV_API_KEY, _config_api_key, _default_config_path
 from lmu_ep_client.poller import run
 
@@ -26,7 +26,6 @@ def _qt():
         QLabel,
         QLineEdit,
         QMainWindow,
-        QMessageBox,
         QPushButton,
         QRadioButton,
         QTextEdit,
@@ -49,7 +48,6 @@ def _qt():
         "QLabel": QLabel,
         "QLineEdit": QLineEdit,
         "QMainWindow": QMainWindow,
-        "QMessageBox": QMessageBox,
         "QPushButton": QPushButton,
         "QRadioButton": QRadioButton,
         "QTextEdit": QTextEdit,
@@ -256,6 +254,24 @@ def _make_qt_worker(qt: dict, worker: RunWorker):
     return QtRunWorker()
 
 
+def _make_api_worker(qt: dict, request: Callable[[], object]):
+    class QtApiWorker(qt["QObject"]):
+        loaded = qt["Signal"](object)
+        failed = qt["Signal"](str)
+        finished = qt["Signal"]()
+
+        def run(self) -> None:
+            try:
+                self.loaded.emit(request())
+            except Exception as e:
+                logging.getLogger(__name__).exception("GUI API request failed")
+                self.failed.emit(str(e))
+            finally:
+                self.finished.emit()
+
+    return QtApiWorker()
+
+
 def _launcher_window_class(qt: dict):
     class LauncherWindow(qt["QMainWindow"]):
         def __init__(self) -> None:
@@ -263,10 +279,15 @@ def _launcher_window_class(qt: dict):
             self.setWindowTitle("LMU EP Client")
             self.resize(760, 560)
             self.registrations: list[dict] = []
-            self.team_members: list[dict] = []
             self.thread = None
             self.worker = None
             self.qt_worker = None
+            self.api_thread = None
+            self.api_qt_worker = None
+            self._api_request_kind: str | None = None
+            self._refresh_mode_after_api = False
+            self._close_after_stop = False
+            self._last_worker_error: str | None = None
 
             root = qt["QWidget"]()
             layout = qt["QVBoxLayout"](root)
@@ -391,30 +412,42 @@ def _launcher_window_class(qt: dict):
             self.status_label.setText("API key saved.")
 
         def refresh_registrations(self) -> None:
+            if self.api_thread:
+                self.status_label.setText("API request already running.")
+                return
             api_key = self.api_key_edit.text().strip()
             if not api_key:
                 self.status_label.setText("Enter an API key before refreshing registrations.")
                 return
-            try:
-                regs = TrackingClient(DEFAULT_API_URL, api_key).list_registrations()
-            except (ApiError, ValueError) as e:
-                self.status_label.setText(f"Failed to load registrations: {e}")
+            self.status_label.setText("Loading registrations...")
+            self.start_api_request(
+                "registrations",
+                lambda: TrackingClient(DEFAULT_API_URL, api_key).list_registrations(),
+                self.handle_registrations_loaded,
+            )
+
+        def handle_registrations_loaded(self, regs: object) -> None:
+            if not isinstance(regs, list):
+                self.handle_api_failed("Failed to load registrations: unexpected response")
                 return
             self.registrations = regs
+            self.registration_combo.blockSignals(True)
             self.registration_combo.clear()
             if not regs:
                 self.registration_combo.addItem("No registrations found", None)
+                self.registration_combo.blockSignals(False)
                 self.status_label.setText("No registrations found.")
                 return
             for reg in regs:
                 self.registration_combo.addItem(format_registration_label(reg), reg)
+            self.registration_combo.blockSignals(False)
             self.status_label.setText(f"{len(regs)} registration(s) loaded.")
+            self._refresh_mode_after_api = True
+
+        def registration_changed(self, *args) -> None:
             self.mode_changed()
 
-        def registration_changed(self) -> None:
-            self.mode_changed()
-
-        def mode_changed(self) -> None:
+        def mode_changed(self, *args) -> None:
             if self.practice_radio.isChecked():
                 self.load_team_members()
             else:
@@ -423,6 +456,9 @@ def _launcher_window_class(qt: dict):
             self.update_status()
 
         def load_team_members(self) -> None:
+            if self.api_thread:
+                self.status_label.setText("API request already running.")
+                return
             reg = self.selected_registration()
             self.member_combo.clear()
             if not reg:
@@ -432,11 +468,20 @@ def _launcher_window_class(qt: dict):
             if not api_key:
                 self.member_combo.addItem("Enter an API key first", None)
                 return
-            try:
-                members = TrackingClient(DEFAULT_API_URL, api_key).list_team_members(reg["id"])
-            except (ApiError, ValueError) as e:
+            registration_id = reg["id"]
+            self.member_combo.addItem("Loading team members...", None)
+            self.status_label.setText("Loading team members...")
+            self.start_api_request(
+                "team_members",
+                lambda: TrackingClient(DEFAULT_API_URL, api_key).list_team_members(registration_id),
+                self.handle_team_members_loaded,
+            )
+
+        def handle_team_members_loaded(self, members: object) -> None:
+            self.member_combo.clear()
+            if not isinstance(members, list):
                 self.member_combo.addItem("Could not load team members", None)
-                self.status_label.setText(f"Failed to load team members: {e}")
+                self.handle_api_failed("Failed to load team members: unexpected response")
                 return
             if not members:
                 self.member_combo.addItem("No team members found", None)
@@ -445,6 +490,63 @@ def _launcher_window_class(qt: dict):
             for member in members:
                 self.member_combo.addItem(format_team_member_label(member), member)
             self.status_label.setText(f"{len(members)} team member(s) loaded.")
+
+        def start_api_request(
+            self,
+            kind: str,
+            request: Callable[[], object],
+            handle_loaded: Callable[[object], None],
+        ) -> None:
+            if self.api_thread:
+                self.status_label.setText("API request already running.")
+                return
+            self._api_request_kind = kind
+            self.api_qt_worker = _make_api_worker(qt, request)
+            self.api_thread = qt["QThread"]()
+            self.api_qt_worker.moveToThread(self.api_thread)
+            self.api_thread.started.connect(self.api_qt_worker.run)
+            self.api_qt_worker.loaded.connect(handle_loaded)
+            self.api_qt_worker.failed.connect(self.handle_api_failed)
+            self.api_qt_worker.finished.connect(self.api_thread.quit)
+            self.api_thread.finished.connect(self.api_thread_finished)
+            self.set_api_loading_enabled(False)
+            self.api_thread.start()
+
+        def set_api_loading_enabled(self, enabled: bool) -> None:
+            kind = self._api_request_kind
+            if kind == "registrations":
+                self.refresh_button.setEnabled(enabled)
+                self.registration_combo.setEnabled(enabled)
+            elif kind == "team_members":
+                self.registration_combo.setEnabled(enabled)
+                self.member_combo.setEnabled(enabled)
+
+        def handle_api_failed(self, message: str) -> None:
+            prefix = (
+                "Failed to load team members"
+                if self._api_request_kind == "team_members"
+                else "Failed to load registrations"
+            )
+            if self._api_request_kind == "team_members":
+                self.member_combo.clear()
+                self.member_combo.addItem("Could not load team members", None)
+            self.status_label.setText(f"{prefix}: {message}")
+
+        def api_thread_finished(self) -> None:
+            api_qt_worker = self.api_qt_worker
+            api_thread = self.api_thread
+            refresh_mode = self._refresh_mode_after_api
+            self.set_api_loading_enabled(True)
+            self.api_thread = None
+            self.api_qt_worker = None
+            self._api_request_kind = None
+            self._refresh_mode_after_api = False
+            if api_qt_worker:
+                api_qt_worker.deleteLater()
+            if api_thread:
+                api_thread.deleteLater()
+            if refresh_mode:
+                self.mode_changed()
 
         def pick_output_dir(self) -> None:
             directory = qt["QFileDialog"].getExistingDirectory(self, "Choose output directory")
@@ -474,36 +576,63 @@ def _launcher_window_class(qt: dict):
             if config.debug:
                 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(name)s:%(message)s")
             kwargs = launch_config_to_run_kwargs(config)
+            self._last_worker_error = None
+            self._close_after_stop = False
             self.worker = RunWorker(kwargs)
             self.qt_worker = _make_qt_worker(qt, self.worker)
             self.thread = qt["QThread"]()
             self.qt_worker.moveToThread(self.thread)
             self.thread.started.connect(self.qt_worker.run)
             self.qt_worker.message.connect(self.append_log)
-            self.qt_worker.failed.connect(self.status_label.setText)
+            self.qt_worker.failed.connect(self.handle_client_failed)
             self.qt_worker.finished.connect(self.thread.quit)
-            self.qt_worker.finished.connect(self.client_finished)
+            self.thread.finished.connect(self.client_thread_finished)
             self.thread.start()
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(True)
             self.status_label.setText("Client running.")
+
+        def handle_client_failed(self, message: str) -> None:
+            self._last_worker_error = message
+            self.status_label.setText(message)
 
         def stop_client(self) -> None:
             if self.qt_worker:
                 self.qt_worker.stop()
                 self.status_label.setText("Stopping client...")
 
-        def client_finished(self) -> None:
+        def client_thread_finished(self) -> None:
+            qt_worker = self.qt_worker
+            thread = self.thread
+            error = self._last_worker_error
+            close_after_stop = self._close_after_stop
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
             self.thread = None
             self.worker = None
             self.qt_worker = None
-            self.status_label.setText("Client stopped.")
+            if qt_worker:
+                qt_worker.deleteLater()
+            if thread:
+                thread.deleteLater()
+            if error:
+                self.status_label.setText(error)
+            else:
+                self.status_label.setText("Client stopped.")
+            if close_after_stop:
+                self._close_after_stop = False
+                self.close()
 
         def closeEvent(self, event) -> None:
-            if self.worker:
-                self.worker.stop()
+            if self.thread or self.worker:
+                self._close_after_stop = True
+                if self.qt_worker:
+                    self.qt_worker.stop()
+                else:
+                    self.worker.stop()
+                self.status_label.setText("Stopping client...")
+                event.ignore()
+                return
             super().closeEvent(event)
 
     return LauncherWindow
