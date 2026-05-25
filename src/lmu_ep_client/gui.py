@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from lmu_ep_client.api_client import DEFAULT_API_URL
 from lmu_ep_client.cli import ENV_API_KEY, _config_api_key, _default_config_path
+from lmu_ep_client.poller import run
 
 
 @dataclass
@@ -164,6 +167,24 @@ def launch_config_to_run_kwargs(config: LaunchConfig) -> dict:
             config.practice_team_member_id if config.mode == "practice" else None
         ),
     }
+
+
+class RunWorker:
+    def __init__(
+        self,
+        kwargs: dict,
+        stop_event: threading.Event | None = None,
+        log: Callable[[str], None] | None = None,
+    ) -> None:
+        self.kwargs = dict(kwargs)
+        self.stop_event = stop_event or threading.Event()
+        self.log = log or (lambda message: None)
+
+    def run(self) -> None:
+        run(**self.kwargs, stop_event=self.stop_event, log=self.log)
+
+    def stop(self) -> None:
+        self.stop_event.set()
 
 
 def launch_gui() -> None:

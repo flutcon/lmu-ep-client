@@ -247,3 +247,37 @@ def test_launch_config_to_run_kwargs_practice():
     kwargs = gui.launch_config_to_run_kwargs(state)
 
     assert kwargs["practice_team_member_id"] == "member-1"
+
+
+class _FakeStopEvent:
+    def __init__(self):
+        self.set_called = False
+
+    def set(self):
+        self.set_called = True
+
+
+def test_run_worker_calls_poller_with_stop_event(monkeypatch):
+    calls = {}
+    fake_stop = _FakeStopEvent()
+
+    def fake_run(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(gui, "run", fake_run)
+    worker = gui.RunWorker({"api_key": "key", "registration_id": "reg-1"}, stop_event=fake_stop)
+
+    worker.run()
+
+    assert calls["api_key"] == "key"
+    assert calls["registration_id"] == "reg-1"
+    assert calls["stop_event"] is fake_stop
+
+
+def test_run_worker_stop_sets_event():
+    fake_stop = _FakeStopEvent()
+    worker = gui.RunWorker({}, stop_event=fake_stop)
+
+    worker.stop()
+
+    assert fake_stop.set_called is True
