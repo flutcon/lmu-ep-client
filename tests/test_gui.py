@@ -365,3 +365,13 @@ def test_api_worker_emits_failure_before_finished():
     assert qt_worker.loaded.emissions == []
     assert qt_worker.failed.emissions == [("bad request",)]
     assert qt_worker.finished.emissions == [()]
+
+
+def test_api_error_status_does_not_duplicate_prefix():
+    assert (
+        gui._api_error_status(
+            "registrations",
+            "Failed to load registrations: unexpected response",
+        )
+        == "Failed to load registrations: unexpected response"
+    )

@@ -272,6 +272,15 @@ def _make_api_worker(qt: dict, request: Callable[[], object]):
     return QtApiWorker()
 
 
+def _api_error_status(kind: str | None, message: str) -> str:
+    prefix = (
+        "Failed to load team members"
+        if kind == "team_members"
+        else "Failed to load registrations"
+    )
+    return message if message.startswith(f"{prefix}:") else f"{prefix}: {message}"
+
+
 def _launcher_window_class(qt: dict):
     class LauncherWindow(qt["QMainWindow"]):
         def __init__(self) -> None:
@@ -522,21 +531,18 @@ def _launcher_window_class(qt: dict):
                 self.member_combo.setEnabled(enabled)
 
         def handle_api_failed(self, message: str) -> None:
-            prefix = (
-                "Failed to load team members"
-                if self._api_request_kind == "team_members"
-                else "Failed to load registrations"
-            )
             if self._api_request_kind == "team_members":
                 self.member_combo.clear()
                 self.member_combo.addItem("Could not load team members", None)
-            self.status_label.setText(f"{prefix}: {message}")
+            self.status_label.setText(_api_error_status(self._api_request_kind, message))
 
         def api_thread_finished(self) -> None:
             api_qt_worker = self.api_qt_worker
             api_thread = self.api_thread
             refresh_mode = self._refresh_mode_after_api
-            self.set_api_loading_enabled(True)
+            close_after_stop = self._close_after_stop
+            if not close_after_stop:
+                self.set_api_loading_enabled(True)
             self.api_thread = None
             self.api_qt_worker = None
             self._api_request_kind = None
@@ -545,8 +551,11 @@ def _launcher_window_class(qt: dict):
                 api_qt_worker.deleteLater()
             if api_thread:
                 api_thread.deleteLater()
-            if refresh_mode:
+            if refresh_mode and not close_after_stop:
                 self.mode_changed()
+            if close_after_stop and not self.thread:
+                self._close_after_stop = False
+                self.close()
 
         def pick_output_dir(self) -> None:
             directory = qt["QFileDialog"].getExistingDirectory(self, "Choose output directory")
@@ -624,13 +633,16 @@ def _launcher_window_class(qt: dict):
                 self.close()
 
         def closeEvent(self, event) -> None:
-            if self.thread or self.worker:
+            if self.api_thread or self.thread or self.worker:
                 self._close_after_stop = True
                 if self.qt_worker:
                     self.qt_worker.stop()
-                else:
+                elif self.worker:
                     self.worker.stop()
-                self.status_label.setText("Stopping client...")
+                self.refresh_button.setEnabled(False)
+                self.start_button.setEnabled(False)
+                self.stop_button.setEnabled(False)
+                self.status_label.setText("Closing after background work finishes...")
                 event.ignore()
                 return
             super().closeEvent(event)
