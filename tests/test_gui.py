@@ -353,6 +353,26 @@ def test_run_worker_stop_sets_event():
     assert fake_stop.set_called is True
 
 
+def test_run_worker_clone_with_log_preserves_run_context():
+    fake_stop = _FakeStopEvent()
+    original_log = lambda message: None
+    replacement_log = lambda message: None
+    worker = gui.RunWorker(
+        {"api_key": "key", "registration_id": "reg-1"},
+        stop_event=fake_stop,
+        log=original_log,
+    )
+
+    clone = worker._clone_with_log(replacement_log)
+
+    assert clone is not worker
+    assert clone.kwargs == worker.kwargs
+    assert clone.kwargs is not worker.kwargs
+    assert clone.stop_event is fake_stop
+    assert clone.log is replacement_log
+    assert worker.log is original_log
+
+
 class _FakeSignal:
     def __init__(self, *args):
         self.emissions = []
@@ -373,15 +393,12 @@ def _fake_qt():
     return {"QObject": _FakeQObject, "Signal": _FakeSignal}
 
 
-def test_qt_worker_emits_failure_before_finished():
-    class FailingWorker:
-        def run(self):
-            raise RuntimeError("boom")
+def test_qt_worker_emits_failure_before_finished(monkeypatch):
+    def fake_run(**kwargs):
+        raise RuntimeError("boom")
 
-        def stop(self):
-            pass
-
-    qt_worker = gui._make_qt_worker(_fake_qt(), FailingWorker())
+    monkeypatch.setattr(gui, "run", fake_run)
+    qt_worker = gui._make_qt_worker(_fake_qt(), gui.RunWorker({}))
 
     qt_worker.run()
 
@@ -403,6 +420,19 @@ def test_qt_worker_does_not_mutate_run_worker_log(monkeypatch):
 
     assert worker.log is original_log
     assert qt_worker.message.emissions == [("hello",)]
+
+
+def test_qt_worker_batches_log_messages(monkeypatch):
+    def fake_run(**kwargs):
+        for index in range(5):
+            kwargs["log"](f"line {index}")
+
+    monkeypatch.setattr(gui, "run", fake_run)
+    qt_worker = gui._make_qt_worker(_fake_qt(), gui.RunWorker({}))
+
+    qt_worker.run()
+
+    assert qt_worker.message.emissions == [("line 0\nline 1\nline 2\nline 3\nline 4",)]
 
 
 def test_api_worker_emits_loaded_result():

@@ -263,6 +263,57 @@ class RunWorker:
     def stop(self) -> None:
         self.stop_event.set()
 
+    def _clone_with_log(self, log: Callable[[str], None]) -> RunWorker:
+        return type(self)(self.kwargs, stop_event=self.stop_event, log=log)
+
+
+class _BatchedLogEmitter:
+    def __init__(
+        self,
+        emit: Callable[[str], None],
+        *,
+        batch_size: int = 25,
+        flush_interval: float = 0.2,
+    ) -> None:
+        self._emit = emit
+        self._batch_size = batch_size
+        self._flush_interval = flush_interval
+        self._buffer: list[str] = []
+        self._lock = threading.Lock()
+        self._timer: threading.Timer | None = None
+
+    def log(self, message: str) -> None:
+        batch: list[str] = []
+        with self._lock:
+            self._buffer.append(message)
+            if len(self._buffer) >= self._batch_size:
+                batch = self._take_locked()
+            elif self._timer is None:
+                self._timer = threading.Timer(self._flush_interval, self.flush)
+                self._timer.daemon = True
+                self._timer.start()
+        self._emit_batch(batch)
+
+    def flush(self) -> None:
+        with self._lock:
+            batch = self._take_locked()
+        self._emit_batch(batch)
+
+    def close(self) -> None:
+        self.flush()
+
+    def _take_locked(self) -> list[str]:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        batch = self._buffer
+        self._buffer = []
+        return batch
+
+    def _emit_batch(self, batch: list[str]) -> None:
+        if batch:
+            self._emit("\n".join(batch))
+
 
 def _make_qt_worker(qt: dict, worker: RunWorker):
     class QtRunWorker(qt["QObject"]):
@@ -271,19 +322,14 @@ def _make_qt_worker(qt: dict, worker: RunWorker):
         message = qt["Signal"](str)
 
         def run(self) -> None:
+            log_emitter = _BatchedLogEmitter(self.message.emit)
             try:
-                if isinstance(worker, RunWorker):
-                    RunWorker(
-                        worker.kwargs,
-                        stop_event=worker.stop_event,
-                        log=self.message.emit,
-                    ).run()
-                else:
-                    worker.run()
+                worker._clone_with_log(log_emitter.log).run()
             except Exception as e:
                 logging.getLogger(__name__).exception("GUI worker failed")
                 self.failed.emit(str(e))
             finally:
+                log_emitter.close()
                 self.finished.emit()
 
         def stop(self) -> None:
