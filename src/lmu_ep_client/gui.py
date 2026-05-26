@@ -90,6 +90,7 @@ def save_api_key(api_key: str, config_path: Path | None = None) -> None:
     try:
         tomllib.loads(text)
     except tomllib.TOMLDecodeError:
+        _backup_config(path)
         path.write_text(f"[tracking]\n{assignment}", encoding="utf-8")
         return
 
@@ -155,6 +156,19 @@ def _append_tracking_section(text: str, assignment: str) -> str:
     else:
         separator = "\n\n"
     return f"{text}{separator}[tracking]\n{assignment}"
+
+
+def _backup_config(path: Path) -> Path:
+    backup_path = Path(f"{path}.bak")
+    if not backup_path.exists():
+        path.replace(backup_path)
+        return backup_path
+    for index in range(1, 1000):
+        candidate = Path(f"{backup_path}.{index}")
+        if not candidate.exists():
+            path.replace(candidate)
+            return candidate
+    raise OSError(f"Could not choose backup path for {path}")
 
 
 def load_initial_api_key(config_path: Path | None = None) -> str:
@@ -228,6 +242,10 @@ def launch_config_to_run_kwargs(config: LaunchConfig) -> dict:
     }
 
 
+def _tracking_client(config: LaunchConfig) -> TrackingClient:
+    return TrackingClient(config.api_url.strip() or DEFAULT_API_URL, config.api_key.strip())
+
+
 class RunWorker:
     def __init__(
         self,
@@ -253,9 +271,15 @@ def _make_qt_worker(qt: dict, worker: RunWorker):
         message = qt["Signal"](str)
 
         def run(self) -> None:
-            worker.log = self.message.emit
             try:
-                worker.run()
+                if isinstance(worker, RunWorker):
+                    RunWorker(
+                        worker.kwargs,
+                        stop_event=worker.stop_event,
+                        log=self.message.emit,
+                    ).run()
+                else:
+                    worker.run()
             except Exception as e:
                 logging.getLogger(__name__).exception("GUI worker failed")
                 self.failed.emit(str(e))
@@ -443,14 +467,14 @@ def _launcher_window_class(qt: dict):
             if self.api_thread:
                 self.status_label.setText("API request already running.")
                 return
-            api_key = self.api_key_edit.text().strip()
-            if not api_key:
+            config = self.current_config()
+            if not config.api_key.strip():
                 self.status_label.setText("Enter an API key before refreshing registrations.")
                 return
             self.status_label.setText("Loading registrations...")
             self.start_api_request(
                 "registrations",
-                lambda: TrackingClient(DEFAULT_API_URL, api_key).list_registrations(),
+                lambda: _tracking_client(config).list_registrations(),
                 self.handle_registrations_loaded,
             )
 
@@ -475,14 +499,14 @@ def _launcher_window_class(qt: dict):
         def registration_changed(self, *args) -> None:
             self.mode_changed()
 
-        def mode_changed(self, *args) -> None:
+        def mode_changed(self, *args, update_status: bool = True) -> None:
             if self.practice_radio.isChecked():
                 self.load_team_members()
                 return
-            else:
-                self.member_combo.clear()
-                self.member_combo.addItem("Race mode does not need a practice driver", None)
-            self.update_status()
+            self.member_combo.clear()
+            self.member_combo.addItem("Race mode does not need a practice driver", None)
+            if update_status:
+                self.update_status()
 
         def load_team_members(self) -> None:
             if self.api_thread:
@@ -493,8 +517,8 @@ def _launcher_window_class(qt: dict):
             if not reg:
                 self.member_combo.addItem("Select a registration first", None)
                 return
-            api_key = self.api_key_edit.text().strip()
-            if not api_key:
+            config = self.current_config()
+            if not config.api_key.strip():
                 self.member_combo.addItem("Enter an API key first", None)
                 return
             registration_id = reg["id"]
@@ -502,7 +526,7 @@ def _launcher_window_class(qt: dict):
             self.status_label.setText("Loading team members...")
             self.start_api_request(
                 "team_members",
-                lambda: TrackingClient(DEFAULT_API_URL, api_key).list_team_members(registration_id),
+                lambda: _tracking_client(config).list_team_members(registration_id),
                 self.handle_team_members_loaded,
             )
 
@@ -572,7 +596,7 @@ def _launcher_window_class(qt: dict):
             if api_thread:
                 api_thread.deleteLater()
             if refresh_mode and not close_after_stop:
-                self.mode_changed()
+                self.mode_changed(update_status=False)
             if close_after_stop and not self.thread:
                 self._close_after_stop = False
                 self.close()

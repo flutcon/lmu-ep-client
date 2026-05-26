@@ -35,6 +35,8 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
+    # Keep one executable usable for both CLI output and GUI launch; this also
+    # means Windows double-clicks show a console alongside the GUI.
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,

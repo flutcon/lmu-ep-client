@@ -66,13 +66,15 @@ def test_save_api_key_appends_tracking_section_without_clobbering(tmp_path):
 
 def test_save_api_key_repairs_malformed_config(tmp_path, monkeypatch):
     config_path = tmp_path / "config.toml"
-    config_path.write_text("[tracking\n", encoding="utf-8")
+    original = 'theme = "dark"\n[tracking\n'
+    config_path.write_text(original, encoding="utf-8")
     monkeypatch.delenv("LMU_EP_API_KEY", raising=False)
 
     gui.save_api_key("new", config_path=config_path)
 
     saved = config_path.read_text(encoding="utf-8")
     assert saved == '[tracking]\napi_key = "new"\n'
+    assert (tmp_path / "config.toml.bak").read_text(encoding="utf-8") == original
     assert tomllib.loads(saved)["tracking"]["api_key"] == "new"
     assert gui.load_initial_api_key(config_path=config_path) == "new"
 
@@ -274,6 +276,24 @@ def test_launch_config_to_run_kwargs_practice():
     assert kwargs["practice_team_member_id"] == "member-1"
 
 
+def test_tracking_client_from_config_uses_configured_api_url(monkeypatch):
+    calls = {}
+
+    class FakeClient:
+        def __init__(self, api_url, api_key):
+            calls["api_url"] = api_url
+            calls["api_key"] = api_key
+
+    monkeypatch.setattr(gui, "TrackingClient", FakeClient)
+
+    client = gui._tracking_client(
+        gui.LaunchConfig(api_key=" key ", api_url=" https://example.test/api ")
+    )
+
+    assert isinstance(client, FakeClient)
+    assert calls == {"api_url": "https://example.test/api", "api_key": "key"}
+
+
 class _FakeStopEvent:
     def __init__(self):
         self.set_called = False
@@ -367,6 +387,22 @@ def test_qt_worker_emits_failure_before_finished():
 
     assert qt_worker.failed.emissions == [("boom",)]
     assert qt_worker.finished.emissions == [()]
+
+
+def test_qt_worker_does_not_mutate_run_worker_log(monkeypatch):
+    original_log = lambda message: None
+
+    def fake_run(**kwargs):
+        kwargs["log"]("hello")
+
+    monkeypatch.setattr(gui, "run", fake_run)
+    worker = gui.RunWorker({"api_key": "key"}, log=original_log)
+    qt_worker = gui._make_qt_worker(_fake_qt(), worker)
+
+    qt_worker.run()
+
+    assert worker.log is original_log
+    assert qt_worker.message.emissions == [("hello",)]
 
 
 def test_api_worker_emits_loaded_result():
