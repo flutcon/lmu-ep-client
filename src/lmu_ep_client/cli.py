@@ -15,7 +15,9 @@ from lmu_ep_client.interactive import (
     select_registration,
     select_team_member,
 )
+from lmu_ep_client.logging_setup import configure as configure_logging, set_level
 from lmu_ep_client.poller import _decode, run
+from lmu_ep_client.stdio_setup import configure_startup_stdio
 from pyLMUSharedMemory import lmu_data
 
 ENV_API_KEY = "LMU_EP_API_KEY"
@@ -148,7 +150,11 @@ def _list_registrations(api: TrackingClient) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) == 1:
+    gui_mode = len(sys.argv) == 1
+    configure_startup_stdio(attach_console=not gui_mode)
+    configure_logging()
+
+    if gui_mode:
         _launch_gui()
         return
 
@@ -241,10 +247,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.WARNING,
-        format="%(levelname)s:%(name)s:%(message)s",
-    )
+    set_level(logging.DEBUG if args.debug else logging.WARNING)
 
     if args.list_teams:
         _list_teams()

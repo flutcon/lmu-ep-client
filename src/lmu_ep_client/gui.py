@@ -10,6 +10,7 @@ from pathlib import Path
 
 from lmu_ep_client.api_client import DEFAULT_API_URL, TrackingClient
 from lmu_ep_client.cli import ENV_API_KEY, _config_api_key, _default_config_path
+from lmu_ep_client.logging_setup import default_log_path, set_level
 from lmu_ep_client.poller import run
 
 
@@ -473,6 +474,7 @@ def _launcher_window_class(qt: dict):
                 self.status_label.setText(initial_api_key_error)
                 self.append_log(initial_api_key_error)
             self.append_log("Ready. Save an API key, refresh registrations, choose a mode, then start.")
+            self.append_log(f"Logs: {default_log_path()}")
 
         def append_log(self, message: str) -> None:
             self.log_edit.append(message)
@@ -673,7 +675,7 @@ def _launcher_window_class(qt: dict):
                 self.status_label.setText(error)
                 return
             if config.debug:
-                logging.basicConfig(level=logging.DEBUG, format="%(levelname)s:%(name)s:%(message)s")
+                set_level(logging.DEBUG)
             kwargs = launch_config_to_run_kwargs(config)
             self._last_worker_error = None
             self._close_after_stop = False
@@ -740,10 +742,36 @@ def _launcher_window_class(qt: dict):
     return LauncherWindow
 
 
+MIN_SPLASH_MS = 900
+
+
 def launch_gui() -> None:
+    # Bring up QApplication + splash with the minimum import surface so the
+    # pixmap paints before the rest of the widget classes load.
+    from PySide6.QtCore import QElapsedTimer, QEventLoop, QTimer
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+
+    from lmu_ep_client.splash import make_splash
+
+    splash = make_splash()
+    splash.show()
+    app.processEvents()
+
+    splash_timer = QElapsedTimer()
+    splash_timer.start()
+
     qt = _qt()
-    app = qt["QApplication"].instance() or qt["QApplication"]([])
     window_class = _launcher_window_class(qt)
     window = window_class()
+
+    remaining = MIN_SPLASH_MS - splash_timer.elapsed()
+    if remaining > 0:
+        loop = QEventLoop()
+        QTimer.singleShot(remaining, loop.quit)
+        loop.exec()
+
     window.show()
+    splash.finish(window)
     app.exec()
