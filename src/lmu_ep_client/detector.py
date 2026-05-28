@@ -266,6 +266,7 @@ class StintDetector:
             if self._pre_pit and not self._pit_stand_elapsed:
                 logger.debug("Drive-through detected (no stop), continuing stint (elapsed=%.1f)", tick.elapsed)
                 self._pre_pit = None
+                events.add("pit_lane_exit")
             elif self._pre_pit and self._current_stint_start:
                 pre = self._pre_pit
                 local_pit_telemetry = pre.control != CONTROL_REMOTE and tick.control != CONTROL_REMOTE

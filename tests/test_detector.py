@@ -546,6 +546,7 @@ def test_drive_through_does_not_create_stint():
     # Exit pit lane without stopping (2 -> 0, no state 3 or 5)
     events = det.update(_make_tick(elapsed=633.0, pit_state=0, total_laps=10, fuel=49.8))
     assert "pit_exit" not in events
+    assert "pit_lane_exit" in events
     # Drive-throughs never reach a stand — must not surface pit_at_box or pit_departed
     assert "pit_at_box" not in events
     assert "pit_departed" not in events

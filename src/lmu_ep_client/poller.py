@@ -362,8 +362,14 @@ class TrackingApiSink:
                 )
 
         if "pit_enter" in events:
-            self._pit_entered_at = self._publisher.now_iso()
-            self._pit_entered_et = tick.elapsed
+            pit_entered_at = self._publisher.now_iso()
+            self._publisher.pit_entered(
+                occurred_at=pit_entered_at,
+                et_seconds=tick.elapsed,
+                lmu_driver_name=tick.driver,
+            )
+            self._pit_entered_at = None
+            self._pit_entered_et = None
 
         if "pit_at_box" in events:
             if self._pit_entered_at:
@@ -386,6 +392,11 @@ class TrackingApiSink:
                 et_seconds=tick.elapsed,
                 lmu_driver_name=tick.driver,
             )
+
+        if "pit_lane_exit" in events:
+            self._publisher.pit_exited(et_seconds=tick.elapsed, lmu_driver_name=tick.driver)
+            self._pit_entered_at = None
+            self._pit_entered_et = None
 
         if "pit_exit" in events:
             stint, _pit, pit_dict, _msg = _pit_exit_details(detector, tick)

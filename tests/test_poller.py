@@ -335,6 +335,25 @@ def test_tracking_api_sink_omits_snapshot_when_remote_driver_controls_car():
     )
 
 
+def test_tracking_api_sink_emits_only_entry_and_exit_for_drive_through():
+    publisher = MagicMock()
+    publisher.now_iso.return_value = "2026-05-28T18:00:00Z"
+    sink = TrackingApiSink(publisher)
+
+    sink.on_events({"pit_enter"}, _tick(elapsed=600.0), SimpleNamespace())
+    sink.on_events({"pit_lane_exit"}, _tick(elapsed=633.0), SimpleNamespace())
+
+    publisher.pit_entered.assert_called_once_with(
+        occurred_at="2026-05-28T18:00:00Z",
+        et_seconds=600.0,
+        lmu_driver_name="Alex",
+    )
+    publisher.pit_exited.assert_called_once_with(et_seconds=633.0, lmu_driver_name="Alex")
+    publisher.pit_at_box.assert_not_called()
+    publisher.pit_departed.assert_not_called()
+    publisher.pitstop.assert_not_called()
+
+
 def test_tracking_api_sink_emits_lap_completed_with_local_practice_telemetry():
     publisher = MagicMock()
     publisher.resolve_driver.return_value = "m1"

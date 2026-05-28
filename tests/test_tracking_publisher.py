@@ -203,8 +203,7 @@ def test_pitstop_path_uses_registration_id():
 
 
 def test_pit_entered_uses_provided_occurred_at():
-    """pit_entered is deferred until pit_at_box so the poller backdates it
-    with the wall-clock captured at the actual pit-lane crossing."""
+    """pit_entered can carry the wall-clock captured at the pit-lane crossing."""
     api = MagicMock()
     pub = _make(api)
     pub.pit_entered(occurred_at="2026-05-11T10:00:00Z")
