@@ -312,8 +312,12 @@ def test_tracking_api_sink_attaches_local_snapshot_to_box_and_departure_events()
             "RR": 0.8235,
         },
     }
-    publisher.pit_at_box.assert_called_once_with(meta=expected_meta, et_seconds=1.0)
-    publisher.pit_departed.assert_called_once_with(meta=expected_meta, et_seconds=1.0)
+    publisher.pit_at_box.assert_called_once_with(
+        meta=expected_meta, et_seconds=1.0, lmu_driver_name="Alex"
+    )
+    publisher.pit_departed.assert_called_once_with(
+        meta=expected_meta, et_seconds=1.0, lmu_driver_name="Alex"
+    )
 
 
 def test_tracking_api_sink_omits_snapshot_when_remote_driver_controls_car():
@@ -323,8 +327,12 @@ def test_tracking_api_sink_omits_snapshot_when_remote_driver_controls_car():
 
     sink.on_events({"pit_at_box", "pit_departed"}, tick, SimpleNamespace())
 
-    publisher.pit_at_box.assert_called_once_with(meta=None, et_seconds=1.0)
-    publisher.pit_departed.assert_called_once_with(meta=None, et_seconds=1.0)
+    publisher.pit_at_box.assert_called_once_with(
+        meta=None, et_seconds=1.0, lmu_driver_name="Alex"
+    )
+    publisher.pit_departed.assert_called_once_with(
+        meta=None, et_seconds=1.0, lmu_driver_name="Alex"
+    )
 
 
 def test_tracking_api_sink_emits_lap_completed_with_local_practice_telemetry():

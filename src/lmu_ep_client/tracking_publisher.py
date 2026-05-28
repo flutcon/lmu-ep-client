@@ -71,8 +71,11 @@ class TrackingPublisher:
         occurred_at: str | None,
         meta: dict[str, Any] | None = None,
         et_seconds: float | None = None,
+        team_member_id: str | None = None,
     ) -> None:
         body: dict[str, Any] = {"type": event_type, "occurredAt": occurred_at or _now_iso()}
+        if team_member_id is not None:
+            body["teamMemberId"] = team_member_id
         if et_seconds is not None:
             body["etSeconds"] = et_seconds
         if meta:
@@ -84,32 +87,48 @@ class TrackingPublisher:
         occurred_at: str | None = None,
         meta: dict[str, Any] | None = None,
         et_seconds: float | None = None,
+        lmu_driver_name: str | None = None,
     ) -> None:
-        self._post_phase("pit_entered", occurred_at, meta, et_seconds)
+        self._post_phase(
+            "pit_entered", occurred_at, meta, et_seconds,
+            team_member_id=self._resolve(lmu_driver_name),
+        )
 
     def pit_at_box(
         self,
         occurred_at: str | None = None,
         meta: dict[str, Any] | None = None,
         et_seconds: float | None = None,
+        lmu_driver_name: str | None = None,
     ) -> None:
-        self._post_phase("pit_at_box", occurred_at, meta, et_seconds)
+        self._post_phase(
+            "pit_at_box", occurred_at, meta, et_seconds,
+            team_member_id=self._resolve(lmu_driver_name),
+        )
 
     def pit_departed(
         self,
         occurred_at: str | None = None,
         meta: dict[str, Any] | None = None,
         et_seconds: float | None = None,
+        lmu_driver_name: str | None = None,
     ) -> None:
-        self._post_phase("pit_departed", occurred_at, meta, et_seconds)
+        self._post_phase(
+            "pit_departed", occurred_at, meta, et_seconds,
+            team_member_id=self._resolve(lmu_driver_name),
+        )
 
     def pit_exited(
         self,
         occurred_at: str | None = None,
         meta: dict[str, Any] | None = None,
         et_seconds: float | None = None,
+        lmu_driver_name: str | None = None,
     ) -> None:
-        self._post_phase("pit_exited", occurred_at, meta, et_seconds)
+        self._post_phase(
+            "pit_exited", occurred_at, meta, et_seconds,
+            team_member_id=self._resolve(lmu_driver_name),
+        )
 
     def _resolve(self, lmu_driver_name: str | None) -> str | None:
         if not lmu_driver_name:
@@ -196,18 +215,22 @@ class TrackingPublisher:
     ) -> None:
         """Emit a pitstop event, plus a swap event if the driver changed.
 
-        The pitstop event itself carries no member fields (the API rejects
-        `teamMemberId` on pitstop events). When `new_driver` differs from
-        `prev_driver` and both resolve, a follow-up `driver_started` event
-        with `swapFromMemberId` is sent so the server records the
-        stop+start atomically (mirrors the UI swap flow). `started_meta`
-        attaches to that swap event so the new driver's stint is tagged
-        with the same track/vehicle context as a regular driver_started.
+        The pitstop event carries `teamMemberId` for the post-stop driver
+        (resolved from `new_driver`) when it can be resolved. When
+        `new_driver` differs from `prev_driver` and both resolve, a
+        follow-up `driver_started` event with `swapFromMemberId` is sent so
+        the server records the stop+start atomically (mirrors the UI swap
+        flow). `started_meta` attaches to that swap event so the new
+        driver's stint is tagged with the same track/vehicle context as a
+        regular driver_started.
         """
+        to_id = self._resolve(new_driver)
         body: dict[str, Any] = {
             "type": "pitstop",
             "occurredAt": _now_iso(),
         }
+        if to_id is not None:
+            body["teamMemberId"] = to_id
         if et_seconds is not None:
             body["etSeconds"] = et_seconds
         if meta:
@@ -218,7 +241,6 @@ class TrackingPublisher:
             return
 
         from_id = self._resolve(prev_driver)
-        to_id = self._resolve(new_driver)
         if from_id and to_id:
             swap_body: dict[str, Any] = {
                 "type": "driver_started",

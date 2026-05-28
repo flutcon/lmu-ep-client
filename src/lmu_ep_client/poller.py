@@ -370,17 +370,26 @@ class TrackingApiSink:
                 self._publisher.pit_entered(
                     occurred_at=self._pit_entered_at,
                     et_seconds=self._pit_entered_et,
+                    lmu_driver_name=tick.driver,
                 )
                 self._pit_entered_at = None
                 self._pit_entered_et = None
-            self._publisher.pit_at_box(meta=_live_pit_snapshot_meta(tick), et_seconds=tick.elapsed)
+            self._publisher.pit_at_box(
+                meta=_live_pit_snapshot_meta(tick),
+                et_seconds=tick.elapsed,
+                lmu_driver_name=tick.driver,
+            )
 
         if "pit_departed" in events:
-            self._publisher.pit_departed(meta=_live_pit_snapshot_meta(tick), et_seconds=tick.elapsed)
+            self._publisher.pit_departed(
+                meta=_live_pit_snapshot_meta(tick),
+                et_seconds=tick.elapsed,
+                lmu_driver_name=tick.driver,
+            )
 
         if "pit_exit" in events:
             stint, _pit, pit_dict, _msg = _pit_exit_details(detector, tick)
-            self._publisher.pit_exited(et_seconds=tick.elapsed)
+            self._publisher.pit_exited(et_seconds=tick.elapsed, lmu_driver_name=tick.driver)
             self._publisher.pitstop(
                 prev_driver=stint.driver,
                 new_driver=tick.driver,

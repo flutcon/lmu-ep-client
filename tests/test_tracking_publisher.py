@@ -81,7 +81,7 @@ def test_pitstop_with_swap_emits_clean_pitstop_then_driver_started():
     pit_body, swap_body = bodies
     assert pit_body["type"] == "pitstop"
     assert "swapFromMemberId" not in pit_body
-    assert "teamMemberId" not in pit_body
+    assert pit_body["teamMemberId"] == "m3"
     assert pit_body["meta"] == {"standing_time_seconds": 32.1}
 
     assert swap_body["type"] == "driver_started"
@@ -99,7 +99,7 @@ def test_pitstop_same_driver_emits_only_pitstop():
     body = bodies[0]
     assert body["type"] == "pitstop"
     assert "swapFromMemberId" not in body
-    assert "teamMemberId" not in body
+    assert body["teamMemberId"] == "m1"
     assert body["meta"]["fuel_added_litres"] == 50
 
 
@@ -282,8 +282,8 @@ def test_pit_phase_methods_post_correct_types():
     assert types == ["pit_at_box", "pit_departed", "pit_exited"]
 
 
-def test_pit_phase_methods_omit_team_member_id():
-    """Phase events have no driver association — the server rejects teamMemberId on them."""
+def test_pit_phase_methods_omit_team_member_id_when_driver_unknown():
+    """Without lmu_driver_name, race-mode pit events have no resolvable driver."""
     api = MagicMock()
     pub = _make(api)
     pub.pit_entered()
@@ -295,6 +295,20 @@ def test_pit_phase_methods_omit_team_member_id():
         assert "teamMemberId" not in body
         assert "swapFromMemberId" not in body
         assert "meta" not in body
+
+
+def test_pit_phase_methods_include_team_member_id_when_driver_resolves():
+    api = MagicMock()
+    pub = _make(api)
+    pub.pit_entered(lmu_driver_name="Alex S.")
+    pub.pit_at_box(lmu_driver_name="Alex S.")
+    pub.pit_departed(lmu_driver_name="Jin K.")
+    pub.pit_exited(lmu_driver_name="Jin K.")
+
+    bodies = _post_bodies(api)
+    assert [b["teamMemberId"] for b in bodies] == ["m1", "m1", "m3", "m3"]
+    for body in bodies:
+        assert "swapFromMemberId" not in body
 
 
 def test_pit_phase_methods_attach_meta_when_provided():
