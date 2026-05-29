@@ -43,6 +43,34 @@ def _decode(b) -> str:
     return b.decode("utf-8", errors="replace").rstrip("\x00")
 
 
+def _kelvin_to_celsius(value: float) -> float:
+    return round(value - 273.15, 2)
+
+
+def _temperature_triplet_c(values) -> dict[str, float]:
+    return {
+        "left": _kelvin_to_celsius(values[0]),
+        "center": _kelvin_to_celsius(values[1]),
+        "right": _kelvin_to_celsius(values[2]),
+    }
+
+
+def _wheel_temperature_c(wheel) -> dict[str, Any]:
+    return {
+        "surface": _temperature_triplet_c(wheel.mTemperature),
+        "carcass": _kelvin_to_celsius(wheel.mTireCarcassTemperature),
+        "inner_layer": _temperature_triplet_c(wheel.mTireInnerLayerTemperature),
+    }
+
+
+def _tyre_temperatures_c(tick: TickData, positions: list[str]) -> dict[str, Any] | None:
+    temperatures = {
+        pos: tick.wheels[i].get("temperature_c")
+        for i, pos in enumerate(positions)
+    }
+    return temperatures if all(value is not None for value in temperatures.values()) else None
+
+
 def _started_meta(tick: TickData) -> dict:
     return {
         "track": tick.track,
@@ -73,7 +101,7 @@ def _practice_lap_payload(tick: TickData, lap_time_seconds: float | None = None)
     resolved_lap_time = tick.last_lap_time if tick.last_lap_time > 0 else lap_time_seconds
     if tick.control == CONTROL_REMOTE or resolved_lap_time is None or resolved_lap_time <= 0:
         return None
-    return {
+    payload = {
         "lap_time_seconds": round(resolved_lap_time, 3),
         "tyre_wear": {
             "fl": round(tick.wheels[0]["wear"] * 100.0, 2),
@@ -84,6 +112,10 @@ def _practice_lap_payload(tick: TickData, lap_time_seconds: float | None = None)
         "energy_pct": round(tick.virtual_energy, 2),
         "fuel_litres": round(tick.fuel, 2),
     }
+    tyre_temps_c = _tyre_temperatures_c(tick, ["fl", "fr", "rl", "rr"])
+    if tyre_temps_c is not None:
+        payload["tyre_temps_c"] = tyre_temps_c
+    return payload
 
 
 def _find_player_id(info: lmu_data.SimInfo, team_name: str | None, driver_name: str | None, slot_id: int | None) -> int | None:
@@ -155,6 +187,7 @@ def _read_tick(info: lmu_data.SimInfo, player_id: int) -> TickData | None:
                 "compound_type": w.mCompoundType,
                 "flat": bool(w.mFlat),
                 "detached": bool(w.mDetached),
+                "temperature_c": _wheel_temperature_c(w),
             })
 
         dent_severity = [veh_telem.mDentSeverity[i] for i in range(8)]
@@ -302,7 +335,12 @@ class JsonSink:
     def _flush(self, detector: StintDetector) -> Path | None:
         if detector.session is None:
             return None
-        self.file_path = self._flush_session(detector.session, detector.stints, self.output_dir)
+        self.file_path = self._flush_session(
+            detector.session,
+            detector.stints,
+            self.output_dir,
+            laps=detector.laps,
+        )
         self.last_flush = self._monotonic()
         return self.file_path
 
@@ -325,7 +363,12 @@ class JsonSink:
     def periodic(self, detector: StintDetector) -> None:
         now = self._monotonic()
         if detector.session and (now - self.last_flush) >= self._flush_interval:
-            self.file_path = self._flush_session(detector.session, detector.stints, self.output_dir)
+            self.file_path = self._flush_session(
+                detector.session,
+                detector.stints,
+                self.output_dir,
+                laps=detector.laps,
+            )
             self.last_flush = now
 
     def on_shutdown(self, detector: StintDetector, last_tick: TickData | None) -> None:

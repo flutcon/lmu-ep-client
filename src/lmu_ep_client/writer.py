@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from lmu_ep_client.models import SessionData, Stint
+from lmu_ep_client.models import LapData, SessionData, Stint
 
 
 _WINDOWS_RESERVED_NAMES = {
@@ -67,6 +67,7 @@ def flush_session(
     session: SessionData,
     stints: list[Stint],
     output_dir: Path | None = None,
+    laps: list[LapData] | None = None,
 ) -> Path:
     if output_dir is None:
         output_dir = _default_output_dir()
@@ -75,6 +76,6 @@ def flush_session(
     filename = session_filename(session.start_time, session.track, session.session_type)
     path = output_dir / filename
 
-    data = session.to_dict(stints)
+    data = session.to_dict(stints, laps=laps)
     _write_text_atomic(path, json.dumps(data, indent=2))
     return path

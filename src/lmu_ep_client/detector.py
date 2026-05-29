@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 from lmu_ep_client.models import (
     EnergyData,
     FuelData,
+    LapData,
     PitStop,
     SessionData,
     Stint,
@@ -127,6 +128,7 @@ class StintDetector:
         self._session_active: bool = False
         self._prev_total_laps: int | None = None
         self._prev_lap_distance: float | None = None
+        self.laps: list[LapData] = []
 
     def update(self, tick: TickData) -> set[str]:
         events: set[str] = set()
@@ -155,6 +157,7 @@ class StintDetector:
         else:
             if self._lap_completed(tick):
                 events.add("lap_completed")
+                self._record_lap(tick)
 
             # Session end detection (SessionOver or return to garage)
             if tick.game_phase in (PHASE_SESSION_OVER, PHASE_GARAGE):
@@ -191,6 +194,35 @@ class StintDetector:
         return (
             self._prev_lap_distance > tick.track_length * LAP_WRAP_PREV_FRACTION
             and tick.lap_distance < tick.track_length * LAP_WRAP_CURR_FRACTION
+        )
+
+    def _record_lap(self, tick: TickData) -> None:
+        local_telemetry = tick.control != CONTROL_REMOTE
+        tyre_wear = None
+        tyre_temps_c = None
+        if local_telemetry:
+            tyre_wear = {
+                pos: round(tick.wheels[i]["wear"], 4)
+                for i, pos in enumerate(WHEEL_POSITIONS)
+            }
+            tyre_temps_c = {
+                pos: tick.wheels[i].get("temperature_c")
+                for i, pos in enumerate(WHEEL_POSITIONS)
+            }
+            if any(value is None for value in tyre_temps_c.values()):
+                tyre_temps_c = None
+
+        self.laps.append(
+            LapData(
+                lap_number=tick.total_laps,
+                driver=tick.driver,
+                end_time_elapsed=tick.elapsed,
+                lap_time_seconds=round(tick.last_lap_time, 3) if tick.last_lap_time > 0 else None,
+                fuel_litres=round(tick.fuel, 2),
+                energy_percent=round(tick.virtual_energy, 2),
+                tyre_wear=tyre_wear,
+                tyre_temps_c=tyre_temps_c,
+            )
         )
 
     def _start_stint(self, tick: TickData) -> None:

@@ -30,6 +30,9 @@ def _wheel() -> SimpleNamespace:
         mCompoundType=1,
         mFlat=False,
         mDetached=False,
+        mTemperature=[353.15, 354.15, 355.15],
+        mTireCarcassTemperature=351.65,
+        mTireInnerLayerTemperature=[352.15, 352.65, 353.15],
     )
 
 
@@ -144,6 +147,21 @@ def test_shared_memory_reader_uses_networked_fuel_fraction_for_remote_control():
     assert tick.last_lap_time == 124.318
     assert tick.lap_distance == 1234.5
     assert tick.track_length == 5000.0
+
+
+def test_shared_memory_reader_extracts_tyre_temperatures_in_celsius():
+    info = _shared_memory_info()
+    reader = SharedMemoryReader(sim_info_factory=lambda: info)
+
+    assert reader.connect() is True
+    tick = reader.read_tick(42)
+
+    assert tick is not None
+    assert tick.wheels[0]["temperature_c"] == {
+        "surface": {"left": 80.0, "center": 81.0, "right": 82.0},
+        "carcass": 78.5,
+        "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0},
+    }
 
 
 class _Reader:
@@ -365,10 +383,10 @@ def test_tracking_api_sink_emits_lap_completed_with_local_practice_telemetry():
         fuel=48.456,
         virtual_energy=73.234,
         wheels=[
-            {"wear": 0.9244, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
-            {"wear": 0.9171, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
-            {"wear": 0.8704, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
-            {"wear": 0.8655, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False},
+            {"wear": 0.9244, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False, "temperature_c": {"surface": {"left": 80.0, "center": 81.0, "right": 82.0}, "carcass": 78.5, "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0}}},
+            {"wear": 0.9171, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False, "temperature_c": {"surface": {"left": 83.0, "center": 84.0, "right": 85.0}, "carcass": 81.5, "inner_layer": {"left": 82.0, "center": 82.5, "right": 83.0}}},
+            {"wear": 0.8704, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False, "temperature_c": {"surface": {"left": 86.0, "center": 87.0, "right": 88.0}, "carcass": 84.5, "inner_layer": {"left": 85.0, "center": 85.5, "right": 86.0}}},
+            {"wear": 0.8655, "compound_index": 0, "compound_type": 2, "flat": False, "detached": False, "temperature_c": {"surface": {"left": 89.0, "center": 90.0, "right": 91.0}, "carcass": 87.5, "inner_layer": {"left": 88.0, "center": 88.5, "right": 89.0}}},
         ],
         control=0,
     )
@@ -378,11 +396,42 @@ def test_tracking_api_sink_emits_lap_completed_with_local_practice_telemetry():
     publisher.lap_completed.assert_called_once_with(
         lap_time_seconds=124.318,
         tyre_wear={"fl": 92.44, "fr": 91.71, "rl": 87.04, "rr": 86.55},
+        tyre_temps_c={
+            "fl": {"surface": {"left": 80.0, "center": 81.0, "right": 82.0}, "carcass": 78.5, "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0}},
+            "fr": {"surface": {"left": 83.0, "center": 84.0, "right": 85.0}, "carcass": 81.5, "inner_layer": {"left": 82.0, "center": 82.5, "right": 83.0}},
+            "rl": {"surface": {"left": 86.0, "center": 87.0, "right": 88.0}, "carcass": 84.5, "inner_layer": {"left": 85.0, "center": 85.5, "right": 86.0}},
+            "rr": {"surface": {"left": 89.0, "center": 90.0, "right": 91.0}, "carcass": 87.5, "inner_layer": {"left": 88.0, "center": 88.5, "right": 89.0}},
+        },
         energy_pct=73.23,
         fuel_litres=48.46,
         team_member_id="m1",
         et_seconds=1.0,
     )
+
+
+def test_json_sink_flushes_lap_records_with_session_data(tmp_path: Path):
+    session = SimpleNamespace()
+    laps = [SimpleNamespace(to_dict=lambda: {"lap_number": 1})]
+    detector = SimpleNamespace(session=session, stints=[], laps=laps)
+    captured = {}
+
+    def flush_session_func(session_arg, stints_arg, output_dir=None, laps=None):
+        captured["session"] = session_arg
+        captured["stints"] = stints_arg
+        captured["output_dir"] = output_dir
+        captured["laps"] = laps
+        return tmp_path / "session.json"
+
+    sink = JsonSink(output_dir=tmp_path, flush_session_func=flush_session_func, monotonic=lambda: 1.0)
+
+    sink.on_events({"session_end"}, _tick(game_phase=8), detector)
+
+    assert captured == {
+        "session": session,
+        "stints": [],
+        "output_dir": tmp_path,
+        "laps": laps,
+    }
 
 
 def test_tracking_api_sink_uses_elapsed_delta_when_last_lap_time_is_unavailable():

@@ -228,6 +228,13 @@ def test_event_bodies_include_et_seconds_when_provided():
     pub.lap_completed(
         lap_time_seconds=124.318,
         tyre_wear={"fl": 92.4, "fr": 91.7, "rl": 87.0, "rr": 86.5},
+        tyre_temps_c={
+            "fl": {
+                "surface": {"left": 80.0, "center": 81.0, "right": 82.0},
+                "carcass": 78.5,
+                "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0},
+            }
+        },
         energy_pct=73.2,
         fuel_litres=48.5,
         team_member_id="m1",
@@ -338,6 +345,13 @@ def test_practice_events_include_practice_session_id():
     pub.lap_completed(
         lap_time_seconds=124.318,
         tyre_wear={"fl": 92.4, "fr": 91.7, "rl": 87.0, "rr": 86.5},
+        tyre_temps_c={
+            "fl": {
+                "surface": {"left": 80.0, "center": 81.0, "right": 82.0},
+                "carcass": 78.5,
+                "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0},
+            }
+        },
         energy_pct=73.2,
         fuel_litres=48.5,
         team_member_id="m1",
@@ -351,6 +365,13 @@ def test_practice_events_include_practice_session_id():
     assert bodies[2]["meta"] == {
         "lapTimeSeconds": 124.318,
         "tyreWear": {"fl": 92.4, "fr": 91.7, "rl": 87.0, "rr": 86.5},
+        "tyreTempsC": {
+            "fl": {
+                "surface": {"left": 80.0, "center": 81.0, "right": 82.0},
+                "carcass": 78.5,
+                "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0},
+            }
+        },
         "energyPct": 73.2,
         "fuelLitres": 48.5,
     }

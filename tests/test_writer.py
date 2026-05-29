@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from lmu_ep_client.writer import session_filename, flush_session
-from lmu_ep_client.models import SessionData, Stint, FuelData, EnergyData, PitStop, TireInfo, TyreWearData
+from lmu_ep_client.models import LapData, SessionData, Stint, FuelData, EnergyData, PitStop, TireInfo, TyreWearData
 
 
 def test_session_filename():
@@ -70,6 +70,57 @@ def test_flush_session_creates_file(tmp_path):
     assert data["session"]["track"] == "Monza"
     assert len(data["stints"]) == 1
     assert data["stints"][0]["total_laps"] == 10
+
+
+def test_flush_session_writes_lap_temperature_snapshots(tmp_path):
+    session = SessionData(
+        track="Monza",
+        session_type="Practice 1",
+        start_time="2026-04-02T18:30:00",
+        end_time="2026-04-02T19:30:00",
+        vehicle="Porsche 963",
+        vehicle_class="Hypercar",
+    )
+    laps = [
+        LapData(
+            lap_number=1,
+            driver="Player",
+            end_time_elapsed=124.318,
+            lap_time_seconds=124.318,
+            fuel_litres=48.46,
+            energy_percent=73.23,
+            tyre_wear={"FL": 0.9244, "FR": 0.9171, "RL": 0.8704, "RR": 0.8655},
+            tyre_temps_c={
+                "FL": {
+                    "surface": {"left": 80.0, "center": 81.0, "right": 82.0},
+                    "carcass": 78.5,
+                    "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0},
+                }
+            },
+        )
+    ]
+
+    path = flush_session(session, [], output_dir=tmp_path, laps=laps)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert data["laps"] == [
+        {
+            "lap_number": 1,
+            "driver": "Player",
+            "end_time_elapsed": 124.318,
+            "lap_time_seconds": 124.318,
+            "fuel_litres": 48.46,
+            "energy_percent": 73.23,
+            "tyre_wear": {"FL": 0.9244, "FR": 0.9171, "RL": 0.8704, "RR": 0.8655},
+            "tyre_temps_c": {
+                "FL": {
+                    "surface": {"left": 80.0, "center": 81.0, "right": 82.0},
+                    "carcass": 78.5,
+                    "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0},
+                }
+            },
+        }
+    ]
 
 
 def test_flush_session_overwrites(tmp_path):

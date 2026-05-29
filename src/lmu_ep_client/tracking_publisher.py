@@ -187,19 +187,24 @@ class TrackingPublisher:
         tyre_wear: dict[str, float],
         energy_pct: float | None,
         fuel_litres: float | None,
+        tyre_temps_c: dict[str, Any] | None = None,
         team_member_id: str | None = None,
         et_seconds: float | None = None,
     ) -> None:
+        meta: dict[str, Any] = {
+            "lapTimeSeconds": lap_time_seconds,
+            "tyreWear": tyre_wear,
+            "energyPct": energy_pct,
+            "fuelLitres": fuel_litres,
+        }
+        if tyre_temps_c is not None:
+            meta["tyreTempsC"] = tyre_temps_c
+
         body: dict[str, Any] = {
             "type": "lap_completed",
             "occurredAt": _now_iso(),
             "teamMemberId": team_member_id,
-            "meta": {
-                "lapTimeSeconds": lap_time_seconds,
-                "tyreWear": tyre_wear,
-                "energyPct": energy_pct,
-                "fuelLitres": fuel_litres,
-            },
+            "meta": meta,
         }
         if et_seconds is not None:
             body["etSeconds"] = et_seconds

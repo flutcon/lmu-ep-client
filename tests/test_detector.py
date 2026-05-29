@@ -97,6 +97,90 @@ def test_lap_completed_event_on_total_laps_increment():
     assert "lap_completed" in events
 
 
+def test_lap_completed_records_local_lap_snapshot():
+    det = _make_detector()
+    det.update(_make_tick(game_phase=5, elapsed=0.0, total_laps=3))
+
+    wheels = [
+        {
+            "wear": 0.92,
+            "compound_index": 0,
+            "compound_type": 2,
+            "flat": False,
+            "detached": False,
+            "temperature_c": {
+                "surface": {"left": 80.0, "center": 81.0, "right": 82.0},
+                "carcass": 78.5,
+                "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0},
+            },
+        },
+        {
+            "wear": 0.91,
+            "compound_index": 0,
+            "compound_type": 2,
+            "flat": False,
+            "detached": False,
+            "temperature_c": {
+                "surface": {"left": 83.0, "center": 84.0, "right": 85.0},
+                "carcass": 81.5,
+                "inner_layer": {"left": 82.0, "center": 82.5, "right": 83.0},
+            },
+        },
+        {
+            "wear": 0.87,
+            "compound_index": 0,
+            "compound_type": 2,
+            "flat": False,
+            "detached": False,
+            "temperature_c": {
+                "surface": {"left": 86.0, "center": 87.0, "right": 88.0},
+                "carcass": 84.5,
+                "inner_layer": {"left": 85.0, "center": 85.5, "right": 86.0},
+            },
+        },
+        {
+            "wear": 0.86,
+            "compound_index": 0,
+            "compound_type": 2,
+            "flat": False,
+            "detached": False,
+            "temperature_c": {
+                "surface": {"left": 89.0, "center": 90.0, "right": 91.0},
+                "carcass": 87.5,
+                "inner_layer": {"left": 88.0, "center": 88.5, "right": 89.0},
+            },
+        },
+    ]
+
+    events = det.update(_make_tick(
+        elapsed=130.0,
+        total_laps=4,
+        last_lap_time=124.318,
+        fuel=48.456,
+        virtual_energy=73.234,
+        wheels=wheels,
+        control=0,
+    ))
+
+    assert "lap_completed" in events
+    assert len(det.laps) == 1
+    assert det.laps[0].to_dict() == {
+        "lap_number": 4,
+        "driver": "Player",
+        "end_time_elapsed": 130.0,
+        "lap_time_seconds": 124.318,
+        "fuel_litres": 48.46,
+        "energy_percent": 73.23,
+        "tyre_wear": {"FL": 0.92, "FR": 0.91, "RL": 0.87, "RR": 0.86},
+        "tyre_temps_c": {
+            "FL": {"surface": {"left": 80.0, "center": 81.0, "right": 82.0}, "carcass": 78.5, "inner_layer": {"left": 79.0, "center": 79.5, "right": 80.0}},
+            "FR": {"surface": {"left": 83.0, "center": 84.0, "right": 85.0}, "carcass": 81.5, "inner_layer": {"left": 82.0, "center": 82.5, "right": 83.0}},
+            "RL": {"surface": {"left": 86.0, "center": 87.0, "right": 88.0}, "carcass": 84.5, "inner_layer": {"left": 85.0, "center": 85.5, "right": 86.0}},
+            "RR": {"surface": {"left": 89.0, "center": 90.0, "right": 91.0}, "carcass": 87.5, "inner_layer": {"left": 88.0, "center": 88.5, "right": 89.0}},
+        },
+    }
+
+
 def test_lap_completed_not_emitted_for_initial_mid_session_lap_count():
     det = _make_detector()
 

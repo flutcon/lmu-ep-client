@@ -73,6 +73,30 @@ class TyreWearData:
 
 
 @dataclass
+class LapData:
+    lap_number: int
+    driver: str
+    end_time_elapsed: float
+    lap_time_seconds: float | None
+    fuel_litres: float | None
+    energy_percent: float | None
+    tyre_wear: dict[str, float] | None
+    tyre_temps_c: dict[str, dict] | None
+
+    def to_dict(self) -> dict:
+        return {
+            "lap_number": self.lap_number,
+            "driver": self.driver,
+            "end_time_elapsed": self.end_time_elapsed,
+            "lap_time_seconds": self.lap_time_seconds,
+            "fuel_litres": self.fuel_litres,
+            "energy_percent": self.energy_percent,
+            "tyre_wear": self.tyre_wear,
+            "tyre_temps_c": self.tyre_temps_c,
+        }
+
+
+@dataclass
 class PitStop:
     pit_enter_elapsed: float
     pit_stand_elapsed: float
@@ -154,7 +178,7 @@ class SessionData:
     vehicle: str
     vehicle_class: str
 
-    def to_dict(self, stints: list[Stint]) -> dict:
+    def to_dict(self, stints: list[Stint], laps: list[LapData] | None = None) -> dict:
         return {
             "session": {
                 "track": self.track,
@@ -165,4 +189,5 @@ class SessionData:
                 "vehicle_class": self.vehicle_class,
             },
             "stints": [s.to_dict() for s in stints],
+            "laps": [lap.to_dict() for lap in (laps or [])],
         }
