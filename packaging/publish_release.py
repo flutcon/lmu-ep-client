@@ -40,10 +40,10 @@ def _stage_bundle() -> "object":
         raise SystemExit(
             f"Built exe not found at {exe}. Run `pyinstaller lmu-ep-client.spec` first."
         )
-    bundle_dir = cfg.PACKAGING_DIR / "bundle"
-    if bundle_dir.exists():
-        shutil.rmtree(bundle_dir)
-    bundle_dir.mkdir(parents=True)
+    # Stage into a fresh temp dir (outside the OneDrive-synced tree) — deleting
+    # a dir under OneDrive can intermittently fail with WinError 5 while the
+    # sync client holds a handle. add_bundle only needs a dir holding the exe.
+    bundle_dir = Path(tempfile.mkdtemp(prefix="lmu-ep-bundle-"))
     shutil.copyfile(exe, bundle_dir / cfg.EXE_NAME)
     return bundle_dir
 
