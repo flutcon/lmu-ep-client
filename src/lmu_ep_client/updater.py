@@ -189,9 +189,11 @@ def _apply(client, *, relaunch: bool, on_status: Callable[[str], None]) -> None:
     tufup's installer launches the swap script and calls ``sys.exit(0)``.
     """
 
-    def progress_hook(downloaded: int, expected: int) -> None:
-        if expected:
-            on_status(f"Downloading update… {downloaded / expected * 100:.0f}%")
+    def progress_hook(bytes_downloaded: int, bytes_expected: int) -> None:
+        # tufup calls this with keyword args (bytes_downloaded=, bytes_expected=),
+        # so the parameter names must match exactly.
+        if bytes_expected:
+            on_status(f"Downloading update… {bytes_downloaded / bytes_expected * 100:.0f}%")
 
     kwargs: dict = {"purge_dst_dir": False, "progress_hook": progress_hook}
     if os.name == "nt":

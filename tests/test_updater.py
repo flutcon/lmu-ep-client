@@ -64,6 +64,11 @@ class _FakeClient:
 
     def download_and_apply_update(self, **kwargs):
         # The real installer exits the process here; the fake just records.
+        # Exercise progress_hook exactly as tufup does (keyword args) so a
+        # signature mismatch is caught by the APPLY tests.
+        hook = kwargs.get("progress_hook")
+        if hook is not None:
+            hook(bytes_downloaded=512, bytes_expected=1024)
         self.applied = True
         self.apply_kwargs = kwargs
 
