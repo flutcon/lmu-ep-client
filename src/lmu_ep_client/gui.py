@@ -72,6 +72,12 @@ class LaunchConfig:
     debug: bool = False
 
 
+def app_window_title() -> str:
+    from lmu_ep_client import __version__
+
+    return f"LMU EP Client v{__version__}"
+
+
 def save_api_key(api_key: str, config_path: Path | None = None) -> None:
     value = api_key.strip()
     if not value:
@@ -370,7 +376,7 @@ def _launcher_window_class(qt: dict):
     class LauncherWindow(qt["QMainWindow"]):
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle("LMU EP Client")
+            self.setWindowTitle(app_window_title())
             self.resize(760, 560)
             self.registrations: list[dict] = []
             self.thread = None

@@ -3,6 +3,7 @@ from __future__ import annotations
 import tomllib
 
 from lmu_ep_client import gui
+from lmu_ep_client import __version__
 from lmu_ep_client.api_client import DEFAULT_API_URL
 
 
@@ -211,6 +212,10 @@ def test_format_team_member_label():
     member = {"id": "m1", "userName": "Alice", "role": "driver", "lmuDriverName": "A. Racer"}
 
     assert gui.format_team_member_label(member) == "Alice  driver  LMU: A. Racer"
+
+
+def test_app_window_title_includes_version():
+    assert gui.app_window_title() == f"LMU EP Client v{__version__}"
 
 
 def test_validate_start_blocks_missing_registration():
