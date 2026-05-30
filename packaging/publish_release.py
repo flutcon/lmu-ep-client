@@ -23,6 +23,8 @@ import argparse
 import shutil
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
 import repo_settings as cfg
 
@@ -46,25 +48,65 @@ def _stage_bundle() -> "object":
     return bundle_dir
 
 
-def _upload(targets_dir, metadata_dir, *, do_upload: bool) -> None:
+def _new_target_files(targets_dir):
     archive = targets_dir / f"{cfg.APP_NAME}-{__version__}.tar.gz"
-    new_targets = [p for p in (archive,) if p.exists()]
-    new_targets += list(targets_dir.glob(f"{cfg.APP_NAME}-{__version__}.*.patch"))
+    files = [p for p in (archive,) if p.exists()]
+    files += sorted(targets_dir.glob(f"{cfg.APP_NAME}-{__version__}.*.patch"))
+    return files
 
-    print("\nTo publish this release to the update host:")
-    print(f"  1. Upload target archive(s) to the '{cfg.GITHUB_RELEASE_TAG}' release:")
-    files = " ".join(f'"{p}"' for p in new_targets)
-    gh_cmd = ["gh", "release", "upload", cfg.GITHUB_RELEASE_TAG, *[str(p) for p in new_targets], "--clobber"]
-    print(f"       gh release upload {cfg.GITHUB_RELEASE_TAG} {files} --clobber")
-    print(f"  2. Publish the metadata in {metadata_dir} to the '{cfg.PAGES_BRANCH}' "
-          "branch under /metadata/ (GitHub Pages).")
 
-    if do_upload:
-        print("\n--upload: running the gh release upload step (additive)...")
-        result = subprocess.run(gh_cmd)
-        if result.returncode != 0:
-            raise SystemExit("gh release upload failed; see output above.")
-        print("Targets uploaded. Metadata must still be pushed to Pages (step 2).")
+def _git(*args, cwd=cfg.PROJECT_ROOT, check=True):
+    return subprocess.run(["git", *args], cwd=cwd, check=check)
+
+
+def _upload_targets(targets_dir) -> None:
+    """Attach the new version's archive (+ any patch) to the rolling release."""
+    files = _new_target_files(targets_dir)
+    if not files:
+        raise SystemExit(f"No target files for v{__version__} found in {targets_dir}.")
+    print(f"Uploading {len(files)} target file(s) to the '{cfg.GITHUB_RELEASE_TAG}' release...")
+    result = subprocess.run(
+        ["gh", "release", "upload", cfg.GITHUB_RELEASE_TAG, *map(str, files), "--clobber"]
+    )
+    if result.returncode != 0:
+        raise SystemExit("gh release upload failed; see output above.")
+
+
+def _push_metadata_to_pages(metadata_dir) -> None:
+    """Sync the freshly-signed metadata into the gh-pages branch and push.
+
+    Uses a throwaway detached worktree based on origin/<PAGES_BRANCH> and pushes
+    HEAD back to that branch, so it always fast-forwards from the remote tip and
+    never disturbs the maintainer's main checkout or a local branch.
+    """
+    metadata_dir = metadata_dir.resolve()
+    worktree = Path(tempfile.mkdtemp(prefix="lmu-ep-pages-"))
+    try:
+        _git("fetch", "origin", cfg.PAGES_BRANCH)
+        _git("worktree", "add", "--detach", str(worktree), f"origin/{cfg.PAGES_BRANCH}")
+        dst = worktree / "metadata"
+        dst.mkdir(exist_ok=True)
+        for f in metadata_dir.iterdir():
+            if f.is_file():
+                shutil.copyfile(f, dst / f.name)
+        _git("add", "metadata", cwd=worktree)
+        if _git("diff", "--cached", "--quiet", cwd=worktree, check=False).returncode == 0:
+            print("Pages metadata already up to date; nothing to push.")
+            return
+        _git("commit", "-m", f"Publish update metadata v{__version__}", cwd=worktree)
+        _git("push", "origin", f"HEAD:{cfg.PAGES_BRANCH}", cwd=worktree)
+        print(f"Pushed metadata to '{cfg.PAGES_BRANCH}' (served at the Pages metadata URL).")
+    finally:
+        _git("worktree", "remove", str(worktree), "--force", check=False)
+        _git("worktree", "prune", check=False)
+
+
+def _print_manual_steps(targets_dir, metadata_dir) -> None:
+    files = " ".join(f'"{p}"' for p in _new_target_files(targets_dir))
+    print("\nNot published (run again with --upload, or do it manually):")
+    print(f"  1. gh release upload {cfg.GITHUB_RELEASE_TAG} {files} --clobber")
+    print(f"  2. Push the metadata in {metadata_dir} to the "
+          f"'{cfg.PAGES_BRANCH}' branch under /metadata/.")
 
 
 def main() -> int:
@@ -77,7 +119,8 @@ def main() -> int:
     parser.add_argument(
         "--upload",
         action="store_true",
-        help="Also run the (additive) gh release upload for the new archive.",
+        help="Publish to the host: upload the archive to the rolling release AND "
+             "push the signed metadata to the gh-pages branch.",
     )
     args = parser.parse_args()
 
@@ -93,8 +136,16 @@ def main() -> int:
         shutil.copyfile(root_src, cfg.TRUSTED_DIR / "root.json")
 
     kind = "required" if args.required else "optional"
-    print(f"Published {kind} update v{__version__}.")
-    _upload(cfg.REPO_DIR / "targets", cfg.REPO_DIR / "metadata", do_upload=args.upload)
+    print(f"Signed {kind} update v{__version__}.")
+
+    targets_dir = (cfg.PACKAGING_DIR / cfg.REPO_DIR / "targets")
+    metadata_dir = (cfg.PACKAGING_DIR / cfg.REPO_DIR / "metadata")
+    if args.upload:
+        _upload_targets(targets_dir)
+        _push_metadata_to_pages(metadata_dir)
+        print(f"\nPublished v{__version__}. Commit packaging/trusted/root.json if it changed.")
+    else:
+        _print_manual_steps(targets_dir, metadata_dir)
     return 0
 
 
