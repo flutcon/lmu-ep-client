@@ -2,14 +2,27 @@
  "signatures": [
   {
    "keyid": "8d96f4a8e391158c048ea3718903bfc88534f1788e108af697aa20c596b3ebd4",
-   "sig": "bab8e667416ae51f41affaeee79f52ba8d494d5e2c915f09b3dcb2838d12d8aff026cce93056f48b93524c562319e7d37376c7448bdb174feff1c35d564b9d09"
+   "sig": "eb39430e535a680b4a66df8d39afa3e54f8a10e6d9918d57ced26225fab970416779159f802b768bece35804e720a1bee546603c3e640108d06feea61b9e3106"
   }
  ],
  "signed": {
   "_type": "targets",
-  "expires": "2026-06-29T18:10:06Z",
+  "expires": "2026-06-29T20:33:27Z",
   "spec_version": "1.0.31",
-  "targets": {},
-  "version": 1
+  "targets": {
+   "lmu-ep-client-0.1.1.tar.gz": {
+    "custom": {
+     "tufup": {
+      "required": false
+     },
+     "user": null
+    },
+    "hashes": {
+     "sha256": "577fc64da2f684d677d7719fb0004a5e20e5fd809ae1ef740289187c42bfaf0a"
+    },
+    "length": 62256375
+   }
+  },
+  "version": 2
  }
 }
