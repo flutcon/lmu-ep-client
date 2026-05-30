@@ -2,12 +2,12 @@
  "signatures": [
   {
    "keyid": "8d96f4a8e391158c048ea3718903bfc88534f1788e108af697aa20c596b3ebd4",
-   "sig": "820a99d607f326a962ffde58f7d5dc81f21565e12d74986c60518f10ef1bd5b564d049b5a76f8ecc501c5fc1b3ccd60026fcbd5eb464a0474e329193a24ca00f"
+   "sig": "f60b1cf8e614f74d332d0f52f3715ba46cc9956aef9ffdb05196fc8b49b86f1ade83aeb3eb3bd309943f8f81faadc18b566492957ffc98e14aa535fec6f8780d"
   }
  ],
  "signed": {
   "_type": "targets",
-  "expires": "2026-06-29T22:30:41Z",
+  "expires": "2026-06-29T22:48:25Z",
   "spec_version": "1.0.31",
   "targets": {
    "lmu-ep-client-0.1.1.tar.gz": {
@@ -73,8 +73,34 @@
      "sha256": "44b75707ccb3e61f98c6e0e2b5473387ed52b3c926be66c3861d52f0db4e837c"
     },
     "length": 62257976
+   },
+   "lmu-ep-client-0.1.4.patch": {
+    "custom": {
+     "tufup": {
+      "tar_hash": "e7d8cef99a9a5d93c57a5adf031f7392959e751eea58312838ee1a691d78cc13",
+      "tar_hash_algorithm": "sha256",
+      "tar_size": 62720000
+     },
+     "user": null
+    },
+    "hashes": {
+     "sha256": "958e58f421ddbabfd849df98250c5dc029b240028cd577f76e1d7d94a3030fab"
+    },
+    "length": 431299
+   },
+   "lmu-ep-client-0.1.4.tar.gz": {
+    "custom": {
+     "tufup": {
+      "required": false
+     },
+     "user": null
+    },
+    "hashes": {
+     "sha256": "91a388c6d5b0e49af1ef3c6b1a5dafbfa8ecb0f1b2845bb65c8f7a198db18d71"
+    },
+    "length": 62256997
    }
   },
-  "version": 4
+  "version": 5
  }
 }
