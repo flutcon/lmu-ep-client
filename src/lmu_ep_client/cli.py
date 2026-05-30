@@ -18,6 +18,7 @@ from lmu_ep_client.interactive import (
 from lmu_ep_client.logging_setup import configure as configure_logging, set_level
 from lmu_ep_client.poller import _decode, run
 from lmu_ep_client.stdio_setup import configure_startup_stdio
+from lmu_ep_client.updater import maybe_update
 from pyLMUSharedMemory import lmu_data
 
 ENV_API_KEY = "LMU_EP_API_KEY"
@@ -245,9 +246,22 @@ def main() -> None:
         action="store_true",
         help="Enable debug logging",
     )
+    parser.add_argument(
+        "--no-update",
+        action="store_true",
+        help="Skip the startup auto-update check",
+    )
     args = parser.parse_args()
 
     set_level(logging.DEBUG if args.debug else logging.WARNING)
+
+    # Auto-update before doing real work. Skipped for the quick read-only
+    # queries below. Optional updates only auto-apply when interactive (a TTY);
+    # headless/scheduled runs get required updates only. CLI never relaunches —
+    # an argless restart would lose the user's flags — so it exits and the next
+    # invocation runs the new version.
+    if not (args.no_update or args.list_teams or args.list_registrations):
+        maybe_update(apply_optional=is_tty(), relaunch=False, on_status=print)
 
     if args.list_teams:
         _list_teams()

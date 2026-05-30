@@ -10,3 +10,13 @@ vendor/pyLMUSharedMemory/.git
 =*
 .worktrees/
 .pytest-tmp*/
+tmp/
+
+# Update-repo tooling: private signing keys and local repo state. The keys are
+# secret (BACK THEM UP offline); the repository/ holds large target archives
+# and TUF metadata published to the host instead of git. The public trust
+# anchor packaging/trusted/root.json IS committed.
+packaging/keys/
+packaging/repository/
+packaging/bundle/
+packaging/.tufup-repo-config

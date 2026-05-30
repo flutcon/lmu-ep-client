@@ -762,6 +762,20 @@ def launch_gui() -> None:
     splash_timer = QElapsedTimer()
     splash_timer.start()
 
+    # Auto-update before the window builds. Runs on the main thread so tufup's
+    # installer can cleanly exit the process (releasing the exe lock) when it
+    # applies an update; on success this call does not return. GUI takes no
+    # args, so we relaunch automatically. Fails open on any error.
+    from PySide6.QtCore import Qt
+
+    from lmu_ep_client.updater import maybe_update
+
+    def _splash_status(message: str) -> None:
+        splash.showMessage(message, Qt.AlignHCenter | Qt.AlignBottom)
+        app.processEvents()
+
+    maybe_update(apply_optional=True, relaunch=True, on_status=_splash_status)
+
     qt = _qt()
     window_class = _launcher_window_class(qt)
     window = window_class()

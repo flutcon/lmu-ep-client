@@ -52,6 +52,7 @@ python -m lmu_ep_client --list-registrations
 | `--list-registrations` | off | List API registrations for the configured API key, then exit |
 | `--api-url URL` | production API | Override the tracking API base URL |
 | `--debug` | off | Enable debug logging to stderr |
+| `--no-update` | off | Skip the startup auto-update check |
 
 ## Output
 
@@ -62,6 +63,30 @@ sessions/2026-04-02_14-31-12_LeMans24h_Race_1.json
 ```
 
 The file is flushed on every pit stop completion and every 30 seconds while a stint is active. A final flush runs on `Ctrl+C`.
+
+## Automatic updates
+
+The packaged exe checks for a newer signed release on startup and installs it
+automatically, so users always run the latest version without re-downloading.
+
+- **GUI (double-click):** the check runs on the splash screen. If an update is
+  found it downloads, swaps the exe, and relaunches — no prompt.
+- **CLI (with arguments):** interactive runs (a real terminal) update the same
+  way but **exit afterwards instead of relaunching** — re-run your command to
+  use the new version (an automatic relaunch would drop your flags). Headless or
+  scheduled runs only auto-apply **required** updates; optional ones are logged
+  and skipped so a long-running job is never restarted out from under you.
+- A release can be flagged **required** to force the upgrade on every client.
+- Updates are verified with [TUF](https://theupdateframework.io/) signatures; a
+  trust anchor is baked into the exe, so a compromised host cannot push
+  arbitrary code.
+- Any failure (offline, host down, verification error) is non-fatal: the client
+  logs it and launches the version you already have.
+
+Pass `--no-update` to skip the check, or set `LMU_EP_DISABLE_UPDATE=1` to opt
+out entirely. The update host can be overridden with `LMU_EP_UPDATE_METADATA_URL`
+and `LMU_EP_UPDATE_TARGET_URL`. The downloaded metadata/target cache lives under
+`%LOCALAPPDATA%\lmu-ep-client\update\`.
 
 ## Tracking API
 
@@ -272,6 +297,53 @@ python -m venv .venv
 ```
 
 Output: `dist/lmu-ep-client.exe` — single-file executable, no Python install required on the target machine.
+
+## Releasing updates
+
+Updates are distributed through a [tufup](https://github.com/dennisvang/tufup)
+TUF repository: signed metadata is served from GitHub **Pages** and the target
+archives from a rolling GitHub **release** (tag `updates`). The maintainer
+tooling lives in [packaging/](packaging/).
+
+### One-time setup
+
+1. Push this repo to GitHub (`flutcon/lmu-ep-client`), enable Pages on a
+   `gh-pages` branch serving `/metadata`, and create a release tagged `updates`
+   to hold target assets.
+2. Initialise the update repository and signing keys:
+
+   ```
+   .\.venv\Scripts\python.exe packaging\repo_init.py
+   ```
+
+   This generates `packaging/keys/` (the four TUF signing keys) and copies the
+   public trust anchor to `packaging/trusted/root.json` (committed and bundled
+   into the exe). **Back up `packaging/keys/` offline** — losing those keys means
+   existing clients can no longer verify updates, and recovery requires shipping
+   a fresh exe with a new `root.json`. The `packaging/repository/` state should
+   also be preserved between releases (it carries the TUF metadata version
+   continuity); it is gitignored and not committed.
+
+### Each release
+
+1. Bump `__version__` in [src/lmu_ep_client/__init__.py](src/lmu_ep_client/__init__.py).
+2. Build the exe (see above) so `dist/lmu-ep-client.exe` matches that version.
+3. Sign and publish:
+
+   ```
+   .\.venv\Scripts\python.exe packaging\publish_release.py            # optional update
+   .\.venv\Scripts\python.exe packaging\publish_release.py --required # forced update
+   ```
+
+   Add `--upload` to run the additive `gh release upload` for the new archive;
+   otherwise the exact publish commands are printed for you to review. The
+   metadata in `packaging/repository/metadata/` must be pushed to the `gh-pages`
+   branch under `/metadata/`.
+
+The defaults assume the `flutcon/lmu-ep-client` host (see
+[src/lmu_ep_client/updater.py](src/lmu_ep_client/updater.py) and
+[packaging/repo_settings.py](packaging/repo_settings.py)); change those constants
+if you host elsewhere.
 
 ## Development
 
