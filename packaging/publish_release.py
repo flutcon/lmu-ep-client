@@ -49,10 +49,13 @@ def _stage_bundle() -> "object":
 
 
 def _new_target_files(targets_dir):
+    # tufup names targets "<app>-<version>.tar.gz" and patches "<app>-<version>.patch".
+    # BOTH must be uploaded: clients that have their current archive cached fetch
+    # the small patch (~100x smaller); fresh clients fetch the full archive. A
+    # missing patch makes patch-preferring clients 404 and fail to update.
     archive = targets_dir / f"{cfg.APP_NAME}-{__version__}.tar.gz"
-    files = [p for p in (archive,) if p.exists()]
-    files += sorted(targets_dir.glob(f"{cfg.APP_NAME}-{__version__}.*.patch"))
-    return files
+    patch = targets_dir / f"{cfg.APP_NAME}-{__version__}.patch"
+    return [p for p in (archive, patch) if p.exists()]
 
 
 def _git(*args, cwd=cfg.PROJECT_ROOT, check=True):
