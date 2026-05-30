@@ -8,6 +8,9 @@ _q_datas, _q_binaries, _q_hidden = collect_all('questionary')
 _pt_datas, _pt_binaries, _pt_hidden = collect_all('prompt_toolkit')
 _wc_datas, _wc_binaries, _wc_hidden = collect_all('wcwidth')
 
+_app_icon = os.path.join('src', 'lmu_ep_client', 'assets', 'app.ico')
+_app_icon_datas = [(_app_icon, os.path.join('lmu_ep_client', 'assets'))]
+
 # Auto-update stack (tufup + TUF + securesystemslib + certifi CA bundle).
 # These pull native crypto and data files (e.g. certifi/cacert.pem) that must
 # be bundled for update verification to work in the frozen exe.
@@ -95,7 +98,7 @@ a = Analysis(
     ['src/lmu_ep_client/cli.py'],
     pathex=['src', 'vendor'],
     binaries=_q_binaries + _pt_binaries + _wc_binaries + _upd_binaries,
-    datas=_q_datas + _pt_datas + _wc_datas + _upd_datas,
+    datas=_q_datas + _pt_datas + _wc_datas + _upd_datas + _app_icon_datas,
     hiddenimports=_q_hidden + _pt_hidden + _wc_hidden + _qt_hidden + _upd_hidden,
     hookspath=[],
     hooksconfig={},
@@ -128,4 +131,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=_app_icon,
 )

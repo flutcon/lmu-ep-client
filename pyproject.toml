@@ -16,6 +16,9 @@ dependencies = [
 [tool.setuptools.dynamic]
 version = {attr = "lmu_ep_client.__version__"}
 
+[tool.setuptools.package-data]
+lmu_ep_client = ["assets/app.ico"]
+
 [project.scripts]
 lmu-ep-client = "lmu_ep_client.cli:main"
 

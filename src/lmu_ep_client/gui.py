@@ -752,10 +752,12 @@ def launch_gui() -> None:
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])
+    from lmu_ep_client.resources import apply_app_icon
 
     from lmu_ep_client.splash import make_splash
 
     splash = make_splash()
+    apply_app_icon(app, splash)
     splash.show()
     app.processEvents()
 
@@ -779,6 +781,7 @@ def launch_gui() -> None:
     qt = _qt()
     window_class = _launcher_window_class(qt)
     window = window_class()
+    apply_app_icon(app, window)
 
     remaining = MIN_SPLASH_MS - splash_timer.elapsed()
     if remaining > 0:

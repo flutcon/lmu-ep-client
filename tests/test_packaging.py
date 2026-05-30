@@ -37,3 +37,13 @@ def test_pyinstaller_spec_excludes_qt_webengine():
     spec_text = (ROOT / "lmu-ep-client.spec").read_text(encoding="utf-8")
 
     assert "PySide6.QtWebEngineCore" in spec_text
+
+
+def test_app_icon_is_packaged_and_used_by_pyinstaller():
+    spec_text = (ROOT / "lmu-ep-client.spec").read_text(encoding="utf-8")
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert (ROOT / "src" / "lmu_ep_client" / "assets" / "app.ico").exists()
+    assert "assets/app.ico" in config["tool"]["setuptools"]["package-data"]["lmu_ep_client"]
+    assert "icon=_app_icon" in spec_text
+    assert "_app_icon_datas" in spec_text
