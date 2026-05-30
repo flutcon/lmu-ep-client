@@ -138,6 +138,27 @@ def test_maybe_update_fails_open_on_error(frozen_enabled):
     assert client.applied is False
 
 
+def test_make_client_creates_cache_dirs(monkeypatch, tmp_path):
+    # tuf opens the download destination without creating its parent, so the
+    # target dir (and metadata dir) must exist before the Client is used.
+    monkeypatch.setattr(updater, "_metadata_dir", lambda: tmp_path / "md")
+    monkeypatch.setattr(updater, "_target_dir", lambda: tmp_path / "td")
+
+    captured = {}
+
+    class StubClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("tufup.client.Client", StubClient)
+    updater._make_client("0.1.0")
+
+    assert (tmp_path / "md").is_dir()
+    assert (tmp_path / "td").is_dir()
+    assert captured["metadata_dir"] == tmp_path / "md"
+    assert captured["target_dir"] == tmp_path / "td"
+
+
 def test_maybe_update_skips_when_no_trust_anchor(monkeypatch, frozen_enabled):
     monkeypatch.setattr(updater, "_ensure_trusted_root", lambda _dir: False)
     client = _FakeClient(update=_FakeTarget())

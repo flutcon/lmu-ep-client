@@ -165,13 +165,21 @@ def _decide(
 def _make_client(current_version: str):
     from tufup.client import Client
 
+    # tufup/tuf do not create these cache dirs themselves; the target dir in
+    # particular must exist before a download, or tuf raises FileNotFoundError
+    # opening the destination file.
+    metadata_dir = _metadata_dir()
+    target_dir = _target_dir()
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
     return Client(
         app_name=APP_NAME,
         app_install_dir=Path(sys.executable).parent,
         current_version=current_version,
-        metadata_dir=_metadata_dir(),
+        metadata_dir=metadata_dir,
         metadata_base_url=_metadata_base_url(),
-        target_dir=_target_dir(),
+        target_dir=target_dir,
         target_base_url=_target_base_url(),
         refresh_required=False,
     )
