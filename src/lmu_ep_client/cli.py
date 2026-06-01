@@ -17,6 +17,7 @@ from lmu_ep_client.interactive import (
 )
 from lmu_ep_client.logging_setup import configure as configure_logging, set_level
 from lmu_ep_client.poller import _decode, run
+from lmu_ep_client.registration_display import private_registration_column
 from lmu_ep_client.stdio_setup import configure_startup_stdio
 from lmu_ep_client.updater import maybe_update
 from pyLMUSharedMemory import lmu_data
@@ -134,16 +135,20 @@ def _list_registrations(api: TrackingClient) -> None:
         print("No registrations found for this team.")
         return
 
-    print(f"  {'ID':<38} {'Track':<14} {'Layout':<10} {'Car':<22} {'Starts':<22} Tracking")
-    print(f"  {'-'*38} {'-'*14} {'-'*10} {'-'*22} {'-'*22} {'-'*8}")
+    print(
+        f"  {'ID':<38} {'Track':<14} {'Layout':<10} {'Car':<22} "
+        f"{'Starts':<22} {'Tracking':<8} Private"
+    )
+    print(f"  {'-'*38} {'-'*14} {'-'*10} {'-'*22} {'-'*22} {'-'*8} {'-'*16}")
     for r in regs:
         starts = r.get("startsAt") or "-"
         tracking = "yes" if r.get("hasTrackingSession") else "no"
+        private = private_registration_column(r)
         layout = r.get("trackLayoutKey") or "-"
         title = r.get("eventTitle") or ""
         print(
             f"  {r['id']:<38} {(r.get('trackKey') or '-'):<14} {layout:<10} "
-            f"{(r.get('carKey') or '-'):<22} {starts:<22} {tracking}"
+            f"{(r.get('carKey') or '-'):<22} {starts:<22} {tracking:<8} {private}"
         )
         if title:
             print(f"    {title}")

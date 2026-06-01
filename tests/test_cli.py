@@ -61,6 +61,30 @@ def test_list_registrations_uses_env_api_key(monkeypatch):
     assert seen["api_key"] == "env-key"
 
 
+def test_list_registrations_prints_private_owner(capsys):
+    class FakeApi:
+        def list_registrations(self):
+            return [
+                {
+                    "id": "reg-1",
+                    "trackKey": "lemans",
+                    "trackLayoutKey": "24h",
+                    "carKey": "porsche-963",
+                    "startsAt": "2026-06-14T18:00:00Z",
+                    "eventTitle": "Private Practice",
+                    "isPrivate": True,
+                    "ownerLmuDriverName": "A. Racer",
+                    "hasTrackingSession": False,
+                }
+            ]
+
+    cli._list_registrations(FakeApi())
+
+    out = capsys.readouterr().out
+    assert "Private" in out
+    assert "A. Racer" in out
+
+
 def test_tracking_uses_env_api_key(monkeypatch):
     seen = {}
 

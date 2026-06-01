@@ -12,6 +12,7 @@ from lmu_ep_client.api_client import DEFAULT_API_URL, TrackingClient
 from lmu_ep_client.cli import ENV_API_KEY, _config_api_key, _default_config_path
 from lmu_ep_client.logging_setup import default_log_path, set_level
 from lmu_ep_client.poller import run
+from lmu_ep_client.registration_display import private_registration_marker
 
 
 def _qt():
@@ -200,8 +201,9 @@ def format_registration_label(reg: dict) -> str:
     car = reg.get("carKey") or "?"
     title = reg.get("eventTitle") or ""
     tracking = " [tracking]" if reg.get("hasTrackingSession") else ""
+    private = private_registration_marker(reg)
     suffix = f" - {title}" if title else ""
-    return f"{starts}  {track_str}  {car}{tracking}{suffix}"
+    return f"{starts}  {track_str}  {car}{tracking}{private}{suffix}"
 
 
 def format_team_member_label(member: dict) -> str:

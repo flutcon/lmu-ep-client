@@ -13,6 +13,8 @@ from typing import Any
 
 import questionary
 
+from lmu_ep_client.registration_display import private_registration_marker
+
 
 class InteractiveAbort(Exception):
     """Raised when the user cancels a prompt (Ctrl-C / Esc)."""
@@ -30,8 +32,9 @@ def _format_registration(reg: dict[str, Any]) -> str:
     car = reg.get("carKey") or "?"
     title = reg.get("eventTitle") or ""
     tracking = " [tracking]" if reg.get("hasTrackingSession") else ""
+    private = private_registration_marker(reg)
     suffix = f" — {title}" if title else ""
-    return f"{starts}  {track_str:<18}  {car:<22}{tracking}{suffix}"
+    return f"{starts}  {track_str:<18}  {car:<22}{tracking}{private}{suffix}"
 
 
 def select_registration(regs: list[dict[str, Any]]) -> dict[str, Any]:

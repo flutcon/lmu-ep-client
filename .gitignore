@@ -9,6 +9,7 @@ vendor/pyLMUSharedMemory/.git
 .claude/
 =*
 .worktrees/
+.superpowers/
 .pytest-tmp*/
 tmp/
 

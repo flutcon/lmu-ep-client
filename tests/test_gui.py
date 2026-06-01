@@ -208,6 +208,23 @@ def test_format_registration_label():
     assert "[tracking]" in label
 
 
+def test_format_registration_label_marks_private_owner():
+    reg = {
+        "id": "reg-1",
+        "startsAt": "2026-06-14T18:00:00Z",
+        "trackKey": "lemans",
+        "carKey": "porsche-963",
+        "eventTitle": "Private Practice",
+        "isPrivate": True,
+        "ownerLmuDriverName": "A. Racer",
+    }
+
+    label = gui.format_registration_label(reg)
+
+    assert "[private: A. Racer]" in label
+    assert "Private Practice" in label
+
+
 def test_format_team_member_label():
     member = {"id": "m1", "userName": "Alice", "role": "driver", "lmuDriverName": "A. Racer"}
 

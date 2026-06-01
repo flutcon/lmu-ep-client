@@ -74,3 +74,17 @@ def test_format_registration_handles_missing_fields():
     out = interactive._format_registration({"id": "r1"})
     assert "no start time" in out
     assert "?" in out  # missing track/car keys
+
+
+def test_format_registration_marks_private_owner():
+    out = interactive._format_registration(
+        {
+            "id": "r1",
+            "trackKey": "lemans",
+            "carKey": "porsche-963",
+            "isPrivate": True,
+            "ownerLmuDriverName": "A. Racer",
+        }
+    )
+
+    assert "[private: A. Racer]" in out
