@@ -6,7 +6,9 @@ dist/
 build/
 .venv/
 vendor/pyLMUSharedMemory/.git
-.claude/
+.claude/*
+# ...but track shared project skills (settings.local.json etc. stay ignored)
+!.claude/skills/
 =*
 .worktrees/
 .superpowers/
