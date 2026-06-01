@@ -394,3 +394,18 @@ def test_cli_passes_practice_team_member_id(monkeypatch):
     cli.main()
 
     assert seen["practice_team_member_id"] == "member-1"
+
+
+def test_version_flag_prints_version_and_exits(monkeypatch, capsys):
+    from lmu_ep_client import __version__
+
+    _set_argv(monkeypatch, "--version")
+
+    try:
+        cli.main()
+    except SystemExit as e:
+        assert e.code == 0
+    else:
+        raise AssertionError("--version did not exit")
+
+    assert __version__ in capsys.readouterr().out

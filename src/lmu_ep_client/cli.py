@@ -7,6 +7,7 @@ import sys
 import tomllib
 from pathlib import Path
 
+from lmu_ep_client import __version__
 from lmu_ep_client.api_client import DEFAULT_API_URL, ApiError, TrackingClient
 from lmu_ep_client.interactive import (
     InteractiveAbort,
@@ -167,6 +168,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="lmu-ep-client",
         description="LMU Endurance Protocol Client — stint activity logger",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show the client version and exit",
     )
     parser.add_argument(
         "--output-dir",
